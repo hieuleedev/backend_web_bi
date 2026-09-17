@@ -16,16 +16,24 @@ async function runMigration() {
   console.log('🔄 BẮT ĐẦU KHỞI TẠO BẢNG DATABASE (POSTGRESQL / SUPABASE)');
   console.log('====================================================');
 
-  const connectionString = process.env.DATABASE_URL || 
-    `postgres://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || 'password'}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME || 'postgres'}`;
+  const poolConfig = process.env.DATABASE_URL
+    ? {
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+      }
+    : {
+        host: process.env.DB_HOST || 'db.uotzztasrxdxdxunleny.supabase.co',
+        port: Number(process.env.DB_PORT || 5432),
+        database: process.env.DB_NAME || 'postgres',
+        user: process.env.DB_USER || 'postgres',
+        password: process.env.DB_PASSWORD,
+        ssl: { rejectUnauthorized: false }
+      };
 
   const schemaPath = path.join(__dirname, 'schema.sql');
   const sql = fs.readFileSync(schemaPath, 'utf8');
 
-  const pool = new Pool({
-    connectionString,
-    ssl: process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost') ? { rejectUnauthorized: false } : false
-  });
+  const pool = new Pool(poolConfig);
 
   try {
     const client = await pool.connect();

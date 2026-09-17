@@ -9,7 +9,13 @@ import { createClient } from '@supabase/supabase-js';
 export class SupabaseAdapter {
   constructor(config = {}) {
     const url = config.url || process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://uotzztasrxdxdxunleny.supabase.co';
-    const key = config.key || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_raif2dls9os3gJmZ0aqEcg_b0G_kxBb';
+    const key = config.key || 
+      process.env.SUPABASE_SECRET_KEY || 
+      process.env.SUPABASE_SERVICE_ROLE_KEY || 
+      process.env.SUPABASE_KEY || 
+      process.env.SUPABASE_PUBLISHABLE_KEY || 
+      process.env.VITE_SUPABASE_ANON_KEY || 
+      'sb_publishable_raif2dls9os3gJmZ0aqEcg_b0G_kxBb';
     
     this.client = createClient(url, key);
     this.name = 'Supabase';

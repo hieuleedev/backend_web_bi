@@ -14,8 +14,8 @@ async function exportSupabaseData() {
   console.log('📥 BẮT ĐẦU XUẤT (EXPORT) TOÀN BỘ DỮ LIỆU TỪ SUPABASE');
   console.log('====================================================');
 
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://uotzztasrxdxdxunleny.supabase.co';
+  const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
     console.error('❌ Thiếu SUPABASE_URL hoặc SUPABASE_KEY trong file .env');

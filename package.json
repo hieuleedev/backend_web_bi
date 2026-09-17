@@ -1,0 +1,31 @@
+{
+  "name": "backend_web_bi",
+  "version": "1.0.0",
+  "description": "Backend API & Realtime Server for Bi Bi Fashion Boutique & Rental",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "nodejs",
+    "express",
+    "socket.io",
+    "supabase",
+    "vietqr",
+    "ecommerce",
+    "fashion-rental"
+  ],
+  "author": "Bi Bi Fashion",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "multer": "^2.4.0",
+    "pg": "^8.23.0",
+    "socket.io": "^4.8.3"
+  }
+}

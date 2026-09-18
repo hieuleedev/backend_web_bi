@@ -7,6 +7,11 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop backend-web-bi",
+    "pm2:restart": "pm2 restart backend-web-bi",
+    "pm2:logs": "pm2 logs backend-web-bi",
+    "pm2:status": "pm2 status",
     "db:init": "node db/migrate.js",
     "db:export": "node db/export.js",
     "db:import": "node db/import.js"

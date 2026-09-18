@@ -130,6 +130,15 @@ export class MemoryAdapter {
     if (prod) prod.views = (prod.views || 0) + 1;
   }
 
+  async toggleProductLike(id) {
+    const prod = this.products.find(p => p.id === id);
+    if (prod) {
+      prod.likes = (prod.likes || 0) + 1;
+      return prod;
+    }
+    return null;
+  }
+
   async getRentalBookings(productId = null) {
     if (productId) return this.rentals.filter(r => r.productId === productId && r.status !== 'cancelled');
     return this.rentals.filter(r => r.status !== 'cancelled');
@@ -326,13 +335,26 @@ export class MemoryAdapter {
     return { order, orderCode };
   }
 
-  async updateOrderStatus(id, { status, depositStatus }) {
+  async updateOrderStatus(id, { status, depositStatus, paymentStatus }) {
     const order = this.orders.find(o => o.id === id);
     if (!order) return null;
     if (status) order.status = status;
     if (depositStatus) order.depositStatus = depositStatus;
+    if (paymentStatus) order.paymentStatus = paymentStatus;
     if (status === 'completed' && !depositStatus) order.depositStatus = 'refunded';
     return order;
+  }
+
+  async updateOrder(id, data) {
+    const index = this.orders.findIndex(o => o.id === id);
+    if (index === -1) return null;
+    this.orders[index] = { ...this.orders[index], ...data };
+    return this.orders[index];
+  }
+
+  async deleteOrder(id) {
+    this.orders = this.orders.filter(o => o.id !== id);
+    return true;
   }
 
   async getReviews(productId = null) {
@@ -383,7 +405,7 @@ export class MemoryAdapter {
       totalProducts: this.products.length,
       totalOrders: this.orders.length,
       totalRentals: this.rentals.length,
-      totalUsers: 3,
+      totalUsers: (this.users || []).length || 3,
       totalRevenue,
       totalDepositHeld,
       ordersByStatus: {
@@ -395,5 +417,119 @@ export class MemoryAdapter {
         cancelled: this.orders.filter(o => o.status === 'cancelled').length
       }
     };
+  }
+
+  // ==========================================
+  // USERS
+  // ==========================================
+  async getUsers() {
+    if (!this.users) {
+      this.users = [
+        {
+          id: 'user-seller-1',
+          name: 'Bi Bi Boutique (Linh Bi)',
+          email: 'bibi.fashion@gmail.com',
+          phone: '0795623097',
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+          role: 'seller',
+          rating: 4.9,
+          ratingCount: 42,
+          location: 'Khối 1 - Xã Núi Thành - Thành Phố Đà Nẵng',
+          joinedDate: '2026-01-01',
+          bio: 'Chuyên cung cấp và cho thuê đầm dạ hội, áo dài cưới thiết kế thủ công tinh xảo.'
+        },
+        {
+          id: 'user-admin',
+          name: 'Quản Trị Viên Bi Bi',
+          email: 'admin@bibifashion.vn',
+          phone: '0901234567',
+          avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80',
+          role: 'admin',
+          rating: 5.0,
+          ratingCount: 1,
+          location: 'Khối 1 - Xã Núi Thành - Thành Phố Đà Nẵng',
+          joinedDate: '2026-01-01',
+          bio: 'Ban Quản Trị Hệ Thống Sàn Thương Mại Điện Tử Thời Trang Bi Bi.'
+        },
+        {
+          id: 'user-buyer-1',
+          name: 'Hoàng Mai Yến',
+          email: 'maiyen.hoang@gmail.com',
+          phone: '0912349876',
+          avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=400&q=80',
+          role: 'buyer',
+          rating: 5.0,
+          ratingCount: 5,
+          location: 'Cầu Giấy, Hà Nội',
+          joinedDate: '2026-01-10',
+          bio: 'Đam mê thời trang tiệc và chụp ảnh ngoại cảnh.'
+        }
+      ];
+    }
+    return this.users;
+  }
+
+  async getUserById(id) {
+    const users = await this.getUsers();
+    return users.find(u => u.id === id) || null;
+  }
+
+  async createUser(userData) {
+    const users = await this.getUsers();
+    const newUser = {
+      id: userData.id || `user-${Date.now()}`,
+      name: userData.name,
+      email: userData.email,
+      phone: userData.phone || '',
+      avatar: userData.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+      role: userData.role || 'buyer',
+      rating: 5.0,
+      ratingCount: 0,
+      location: userData.location || 'Việt Nam',
+      joinedDate: new Date().toISOString().split('T')[0],
+      bio: userData.bio || ''
+    };
+    users.push(newUser);
+    return newUser;
+  }
+
+  async updateUser(id, userData) {
+    const users = await this.getUsers();
+    const idx = users.findIndex(u => u.id === id);
+    if (idx === -1) return null;
+    users[idx] = { ...users[idx], ...userData };
+    return users[idx];
+  }
+
+  // ==========================================
+  // CONVERSATIONS
+  // ==========================================
+  async getConversations(userId = null) {
+    const convMap = new Map();
+    for (const msg of this.messages) {
+      if (!convMap.has(msg.conversationId)) {
+        convMap.set(msg.conversationId, {
+          id: msg.conversationId,
+          participants: [
+            {
+              id: msg.senderId,
+              name: msg.senderName,
+              avatar: msg.senderAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+              role: 'buyer'
+            },
+            {
+              id: 'user-seller-1',
+              name: 'Bi Bi Boutique (Linh Bi)',
+              avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+              role: 'seller'
+            }
+          ],
+          lastMessage: msg.content,
+          lastMessageTime: msg.createdAt,
+          unreadCount: msg.isRead ? 0 : 1
+        });
+      }
+    }
+    return Array.from(convMap.values());
   }
 }

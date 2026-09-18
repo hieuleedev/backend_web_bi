@@ -79,25 +79,20 @@ io.on('connection', (socket) => {
   });
 });
 
-// Thư mục lưu trữ hình ảnh tải lên
+import { uploadImageFile } from './storage/s3.js';
+
+// Thư mục lưu trữ hình ảnh fallback
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Cấu hình Multer để lưu file ảnh cục bộ
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
-    cb(null, `prod-${uniqueSuffix}${ext}`);
-  }
-});
+// Cấu hình Multer bộ nhớ RAM để gửi trực tiếp lên Vietnix S3
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // Giới hạn tối đa 10MB mỗi ảnh
+  limits: { fileSize: 15 * 1024 * 1024 }, // Tối đa 15MB mỗi ảnh
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
       cb(null, true);
@@ -116,7 +111,7 @@ app.use(cors({
 app.use(express.json({ limit: '20mb' })); // Cho phép gửi Base64 ảnh trực tiếp qua JSON
 app.use(express.urlencoded({ extended: true }));
 
-// Cho phép truy cập công khai ảnh trong thư mục uploads/
+// Cho phép truy cập công khai ảnh trong thư mục uploads/ (fallback)
 app.use('/uploads', express.static(uploadsDir));
 
 // Request Logger Middleware
@@ -136,6 +131,11 @@ app.get('/api/health', async (req, res) => {
       status: 'ok',
       message: 'Bi Bi Fashion Backend API đang hoạt động!',
       database: health,
+      storage: {
+        provider: 'vietnix_s3',
+        endpoint: process.env.S3_ENDPOINT || 'https://s3.vn-hcm-1.vietnix.cloud',
+        bucket: process.env.S3_BUCKET || 'web-bi-images'
+      },
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.floor(process.uptime())
     });
@@ -145,52 +145,56 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ============================================================================
-// 2. UPLOAD ẢNH SẢN PHẨM (MULTIPART FILE & BASE64)
+// 2. UPLOAD ẢNH LÊN VIETNIX S3 (MULTIPART FILE & BASE64)
 // ============================================================================
 
-// POST /api/upload - Tải lên 1 ảnh sản phẩm (FormData với field name: 'image')
-app.post('/api/upload', upload.single('image'), (req, res) => {
+// POST /api/upload - Tải lên 1 ảnh sản phẩm lên Vietnix S3
+app.post('/api/upload', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'Vui lòng chọn 1 file hình ảnh để tải lên' });
     }
 
-    const host = req.get('host');
-    const protocol = req.protocol;
-    const imageUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
+    const result = await uploadImageFile(req.file.buffer, req.file.originalname, req.file.mimetype, req);
 
     res.json({
       success: true,
-      message: 'Tải ảnh lên thành công!',
-      url: imageUrl,
-      relativePath: `/uploads/${req.file.filename}`,
-      filename: req.file.filename,
-      size: req.file.size
+      message: 'Tải ảnh lên Vietnix S3 thành công!',
+      url: result.url,
+      key: result.key,
+      size: result.size,
+      storage: result.storage
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Lỗi tải ảnh lên', error: err.message });
+    console.error('Lỗi tải ảnh lên S3:', err);
+    res.status(500).json({ success: false, message: 'Lỗi tải ảnh lên Vietnix S3', error: err.message });
   }
 });
 
-// POST /api/upload/multiple - Tải lên nhiều ảnh sản phẩm cùng lúc (Tối đa 10 ảnh, field name: 'images')
-app.post('/api/upload/multiple', upload.array('images', 10), (req, res) => {
+// POST /api/upload/multiple - Tải lên nhiều ảnh sản phẩm lên Vietnix S3 cùng lúc (Tối đa 10 ảnh)
+app.post('/api/upload/multiple', upload.array('images', 10), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ success: false, message: 'Vui lòng chọn ít nhất 1 file hình ảnh' });
     }
 
-    const host = req.get('host');
-    const protocol = req.protocol;
-    const urls = req.files.map(f => `${protocol}://${host}/uploads/${f.filename}`);
+    const uploadPromises = req.files.map(file => 
+      uploadImageFile(file.buffer, file.originalname, file.mimetype, req)
+    );
+
+    const results = await Promise.all(uploadPromises);
+    const urls = results.map(r => r.url);
 
     res.json({
       success: true,
-      message: `Đã tải lên thành công ${req.files.length} ảnh!`,
+      message: `Đã tải lên thành công ${results.length} ảnh lên Vietnix S3!`,
       urls,
-      count: req.files.length
+      files: results,
+      count: results.length
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Lỗi tải nhiều ảnh', error: err.message });
+    console.error('Lỗi tải nhiều ảnh lên S3:', err);
+    res.status(500).json({ success: false, message: 'Lỗi tải nhiều ảnh lên Vietnix S3', error: err.message });
   }
 });
 
@@ -289,6 +293,17 @@ app.delete('/api/products/:id', async (req, res) => {
     res.json({ success: true, message: 'Đã xóa sản phẩm thành công' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Lỗi khi xóa sản phẩm', error: err.message });
+  }
+});
+
+// POST /api/products/:id/like - Thích / Tăng like sản phẩm
+app.post('/api/products/:id/like', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updated = await db.toggleProductLike(id);
+    res.json({ success: true, message: 'Đã thích sản phẩm thành công', data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi khi thích sản phẩm', error: err.message });
   }
 });
 
@@ -505,6 +520,31 @@ app.patch('/api/orders/:id/status', async (req, res) => {
   }
 });
 
+// PUT /api/orders/:id - Cập nhật chi tiết đơn hàng
+app.put('/api/orders/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updated = await db.updateOrder(id, req.body);
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng' });
+    }
+    res.json({ success: true, message: 'Cập nhật đơn hàng thành công', data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi cập nhật đơn hàng', error: err.message });
+  }
+});
+
+// DELETE /api/orders/:id - Hủy hoặc xóa đơn hàng
+app.delete('/api/orders/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.deleteOrder(id);
+    res.json({ success: true, message: 'Đã xóa đơn hàng thành công' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi khi xóa đơn hàng', error: err.message });
+  }
+});
+
 // ============================================================================
 // 6. REVIEWS & COMMENTS API (ĐÁNH GIÁ SẢN PHẨM)
 // ============================================================================
@@ -583,6 +623,17 @@ app.post('/api/messages', async (req, res) => {
   }
 });
 
+// GET /api/conversations - Lấy danh sách cuộc hội thoại gần đây
+app.get('/api/conversations', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const conversations = await db.getConversations(userId || null);
+    res.json({ success: true, count: conversations.length, data: conversations });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi tải danh sách hội thoại', error: err.message });
+  }
+});
+
 // ============================================================================
 // 8. ADMIN STATS API (THỐNG KÊ DOANH THU & ĐƠN HÀNG)
 // ============================================================================
@@ -592,6 +643,92 @@ app.get('/api/admin/stats', async (req, res) => {
     res.json({ success: true, stats });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Lỗi tải thống kê', error: err.message });
+  }
+});
+
+// ============================================================================
+// 9. USERS & AUTHENTICATION API (TÀI KHOẢN & NGƯỜI DÙNG)
+// ============================================================================
+
+// GET /api/users - Danh sách người dùng
+app.get('/api/users', async (req, res) => {
+  try {
+    const users = await db.getUsers();
+    res.json({ success: true, count: users.length, data: users });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi tải danh sách người dùng', error: err.message });
+  }
+});
+
+// GET /api/users/:id - Chi tiết người dùng
+app.get('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await db.getUserById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng' });
+    }
+    res.json({ success: true, data: user });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi server', error: err.message });
+  }
+});
+
+// POST /api/auth/register - Đăng ký tài khoản mới
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { name, email, phone, role } = req.body;
+    if (!name || !email) {
+      return res.status(400).json({ success: false, message: 'Vui lòng cung cấp họ tên và email' });
+    }
+    const created = await db.createUser(req.body);
+    const token = `bibi_jwt_${created.id}_${Date.now()}`;
+    res.status(201).json({
+      success: true,
+      message: 'Đăng ký tài khoản thành công!',
+      token,
+      user: created
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi khi đăng ký', error: err.message });
+  }
+});
+
+// POST /api/auth/login - Đăng nhập
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Vui lòng cung cấp email đăng nhập' });
+    }
+    const users = await db.getUsers();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Email này chưa được đăng ký trong hệ thống' });
+    }
+    const token = `bibi_jwt_${user.id}_${Date.now()}`;
+    res.json({
+      success: true,
+      message: 'Đăng nhập thành công!',
+      token,
+      user
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi đăng nhập', error: err.message });
+  }
+});
+
+// PUT /api/users/:id - Cập nhật thông tin tài khoản
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updated = await db.updateUser(id, req.body);
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng' });
+    }
+    res.json({ success: true, message: 'Cập nhật tài khoản thành công', data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi cập nhật', error: err.message });
   }
 });
 

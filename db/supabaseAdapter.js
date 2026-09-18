@@ -44,8 +44,12 @@ export class SupabaseAdapter {
 
     if (category && category !== 'all') query = query.eq('category', category);
     if (type && type !== 'all') query = query.in('type', [type, 'both']);
-    if (status) query = query.eq('status', status);
-    else query = query.eq('status', 'active');
+    if (status && status !== 'all') {
+      const dbStatus = status === 'approved' ? 'active' : status;
+      query = query.eq('status', dbStatus);
+    } else if (!status) {
+      query = query.eq('status', 'active');
+    }
     if (search) query = query.ilike('title', `%${search}%`);
     if (minPrice) query = query.gte('buy_price', Number(minPrice));
     if (maxPrice) query = query.lte('buy_price', Number(maxPrice));
@@ -132,7 +136,7 @@ export class SupabaseAdapter {
       category: data.category || 'party-dress',
       brand: data.brand || 'Bi Bi Collection',
       type: data.type || 'both',
-      status: data.status || 'active',
+      status: (data.status === 'approved' || data.status === 'active') ? 'active' : (data.status || 'active'),
       buy_price: data.buyPrice || 0,
       rent_price_1day: data.rentPrice1Day || 0,
       rent_price_3days: data.rentPrice3Days || 0,
@@ -196,6 +200,20 @@ export class SupabaseAdapter {
     if (prod) {
       await this.client.from('products').update({ views: (prod.views || 0) + 1 }).eq('id', id);
     }
+  }
+
+  async toggleProductLike(id) {
+    const { data: prod } = await this.client.from('products').select('likes').eq('id', id).single();
+    const currentLikes = prod?.likes || 0;
+    const newLikes = currentLikes + 1;
+    const { data: updated, error } = await this.client
+      .from('products')
+      .update({ likes: newLikes })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return this._formatProduct(updated);
   }
 
   // ==========================================
@@ -373,21 +391,30 @@ export class SupabaseAdapter {
   // ORDERS
   // ==========================================
   async getOrders(filters = {}) {
-    const { phone, status } = filters;
+    const { phone, status, search } = filters;
     let query = this.client.from('orders').select('*').order('created_at', { ascending: false });
 
     if (phone) query = query.eq('customer_phone', phone);
-    if (status) query = query.eq('status', status);
+    if (status && status !== 'all') query = query.eq('status', status);
 
     const { data, error } = await query;
     if (error) throw error;
-    return data || [];
+    let list = (data || []).map(row => this._formatOrder(row));
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(o => 
+        (o.customerName && o.customerName.toLowerCase().includes(q)) ||
+        (o.customerPhone && o.customerPhone.includes(q)) ||
+        (o.code && o.code.toLowerCase().includes(q))
+      );
+    }
+    return list;
   }
 
   async getOrderById(id) {
     const { data, error } = await this.client.from('orders').select('*').eq('id', id).single();
     if (error || !data) return null;
-    return data;
+    return this._formatOrder(data);
   }
 
   async createOrder(orderData) {
@@ -400,16 +427,16 @@ export class SupabaseAdapter {
       customer_name: orderData.customerName,
       customer_phone: orderData.customerPhone,
       shipping_address: orderData.shippingAddress,
-      delivery_method: orderData.deliveryMethod || 'standard',
-      payment_method: orderData.paymentMethod || 'vietqr',
-      status: 'pending',
-      total_rent_fee: orderData.totalRentFee || 0,
+      delivery_method: orderData.deliveryMethod || 'shipping',
+      payment_method: orderData.paymentMethod || 'cod',
+      status: orderData.status || 'pending',
+      total_rent_fee: orderData.totalRentFee || orderData.subtotal || 0,
       total_buy_price: orderData.totalBuyPrice || 0,
-      total_deposit: orderData.totalDeposit || 0,
+      total_deposit: orderData.totalDeposit || orderData.depositTotal || 0,
       shipping_fee: orderData.shippingFee ?? 30000,
-      deposit_status: (orderData.totalDeposit || 0) > 0 ? 'held' : 'none',
+      deposit_status: (orderData.totalDeposit || orderData.depositTotal || 0) > 0 ? 'held' : 'none',
       items: orderData.items || [],
-      note: orderData.note || '',
+      note: orderData.note || orderData.notes || '',
       created_at: new Date().toISOString()
     };
 
@@ -435,18 +462,42 @@ export class SupabaseAdapter {
       await this.createManyRentalBookings(rentalBookings);
     }
 
-    return { order: created, orderCode };
+    return { order: this._formatOrder(created), orderCode };
   }
 
-  async updateOrderStatus(id, { status, depositStatus }) {
+  async updateOrderStatus(id, { status, depositStatus, paymentStatus }) {
     const payload = {};
     if (status) payload.status = status;
     if (depositStatus) payload.deposit_status = depositStatus;
+    if (paymentStatus) payload.payment_status = paymentStatus;
     if (status === 'completed' && !depositStatus) payload.deposit_status = 'refunded';
 
     const { data, error } = await this.client.from('orders').update(payload).eq('id', id).select().single();
     if (error) throw error;
-    return data;
+    return this._formatOrder(data);
+  }
+
+  async updateOrder(id, orderData) {
+    const payload = {};
+    if (orderData.status !== undefined) payload.status = orderData.status;
+    if (orderData.depositStatus !== undefined) payload.deposit_status = orderData.depositStatus;
+    if (orderData.paymentStatus !== undefined) payload.payment_status = orderData.paymentStatus;
+    if (orderData.customerName !== undefined) payload.customer_name = orderData.customerName;
+    if (orderData.customerPhone !== undefined) payload.customer_phone = orderData.customerPhone;
+    if (orderData.shippingAddress !== undefined) payload.shipping_address = orderData.shippingAddress;
+    if (orderData.notes !== undefined) payload.note = orderData.notes;
+    if (orderData.note !== undefined) payload.note = orderData.note;
+    if (orderData.items !== undefined) payload.items = orderData.items;
+
+    const { data, error } = await this.client.from('orders').update(payload).eq('id', id).select().single();
+    if (error) throw error;
+    return this._formatOrder(data);
+  }
+
+  async deleteOrder(id) {
+    const { error } = await this.client.from('orders').delete().eq('id', id);
+    if (error) throw error;
+    return true;
   }
 
   // ==========================================
@@ -589,5 +640,148 @@ export class SupabaseAdapter {
       createdAt: p.created_at,
       bookedDates: bookings
     };
+  }
+
+  // Helper chuyển đổi format DB sang Frontend format cho Đơn Hàng
+  _formatOrder(row) {
+    if (!row) return null;
+    const totalBuy = Number(row.total_buy_price || 0);
+    const totalRent = Number(row.total_rent_fee || 0);
+    const totalDeposit = Number(row.total_deposit || 0);
+    const shippingFee = Number(row.shipping_fee ?? 30000);
+    const calculatedTotal = totalBuy + totalRent + totalDeposit + shippingFee;
+
+    return {
+      id: row.id,
+      code: row.order_code,
+      orderCode: row.order_code,
+      userId: row.user_id || 'guest',
+      customerName: row.customer_name,
+      customerPhone: row.customer_phone,
+      customerEmail: row.customer_email || '',
+      shippingAddress: row.shipping_address,
+      deliveryMethod: row.delivery_method || 'shipping',
+      paymentMethod: row.payment_method || 'cod',
+      paymentStatus: row.payment_status || 'unpaid',
+      items: row.items || [],
+      subtotal: totalBuy + totalRent,
+      depositTotal: totalDeposit,
+      shippingFee,
+      serviceFee: 0,
+      totalAmount: calculatedTotal,
+      status: row.status,
+      depositStatus: row.deposit_status || 'none',
+      notes: row.note || row.notes || '',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at || row.created_at
+    };
+  }
+
+  // ==========================================
+  // USERS & PROFILE
+  // ==========================================
+  async getUsers() {
+    const { data, error } = await this.client.from('users').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(u => this._formatUser(u));
+  }
+
+  async getUserById(id) {
+    const { data, error } = await this.client.from('users').select('*').eq('id', id).single();
+    if (error || !data) return null;
+    return this._formatUser(data);
+  }
+
+  async createUser(userData) {
+    const id = userData.id || `user-${Date.now()}`;
+    const payload = {
+      id,
+      name: userData.name,
+      email: userData.email,
+      phone: userData.phone || '',
+      avatar: userData.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+      role: userData.role || 'buyer',
+      rating: 5.0,
+      rating_count: 0,
+      location: userData.location || 'Việt Nam',
+      bio: userData.bio || '',
+      created_at: new Date().toISOString()
+    };
+
+    const { data, error } = await this.client.from('users').insert(payload).select().single();
+    if (error) throw error;
+    return this._formatUser(data);
+  }
+
+  async updateUser(id, userData) {
+    const payload = {};
+    if (userData.name !== undefined) payload.name = userData.name;
+    if (userData.email !== undefined) payload.email = userData.email;
+    if (userData.phone !== undefined) payload.phone = userData.phone;
+    if (userData.avatar !== undefined) payload.avatar = userData.avatar;
+    if (userData.location !== undefined) payload.location = userData.location;
+    if (userData.bio !== undefined) payload.bio = userData.bio;
+    if (userData.role !== undefined) payload.role = userData.role;
+
+    const { data, error } = await this.client.from('users').update(payload).eq('id', id).select().single();
+    if (error) throw error;
+    return this._formatUser(data);
+  }
+
+  _formatUser(u) {
+    if (!u) return null;
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      phone: u.phone || '',
+      avatar: u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+      role: u.role || 'buyer',
+      rating: Number(u.rating || 5.0),
+      ratingCount: u.rating_count || 0,
+      location: u.location || 'Việt Nam',
+      joinedDate: u.created_at ? u.created_at.split('T')[0] : '2026-01-01',
+      bio: u.bio || ''
+    };
+  }
+
+  // ==========================================
+  // CONVERSATIONS
+  // ==========================================
+  async getConversations(userId = null) {
+    const { data: messages, error } = await this.client
+      .from('messages')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const convMap = new Map();
+    for (const msg of (messages || [])) {
+      if (!convMap.has(msg.conversation_id)) {
+        convMap.set(msg.conversation_id, {
+          id: msg.conversation_id,
+          participants: [
+            {
+              id: msg.sender_id,
+              name: msg.sender_name,
+              avatar: msg.sender_avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+              role: 'buyer'
+            },
+            {
+              id: 'user-seller-1',
+              name: 'Bi Bi Boutique (Linh Bi)',
+              avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+              role: 'seller'
+            }
+          ],
+          lastMessage: msg.content,
+          lastMessageTime: msg.created_at,
+          unreadCount: msg.is_read ? 0 : 1
+        });
+      }
+    }
+
+    return Array.from(convMap.values());
   }
 }

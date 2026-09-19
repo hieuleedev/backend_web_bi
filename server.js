@@ -247,16 +247,60 @@ app.get('/api/products/:id/calendar', async (req, res) => {
   }
 });
 
-// POST /api/products - ĐĂNG SẢN PHẨM MỚI (Hỗ trợ bán, cho thuê hoặc cả hai)
-app.post('/api/products', async (req, res) => {
+// POST /api/products - ĐĂNG SẢN PHẨM MỚI (Hỗ trợ JSON lẫn Multipart FormData gửi kèm ảnh)
+app.post('/api/products', upload.array('images', 10), async (req, res) => {
   try {
-    const p = req.body;
+    const p = { ...req.body };
+
+    // 1. Xử lý các files ảnh nhị phân được gửi đính kèm trực tiếp trong request
+    let uploadedUrls = [];
+    if (req.files && req.files.length > 0) {
+      console.log(`📸 Nhận ${req.files.length} file ảnh đính kèm khi đăng sản phẩm. Đang tải lên Vietnix S3...`);
+      const uploadPromises = req.files.map(file =>
+        uploadImageFile(file.buffer, file.originalname, file.mimetype, req)
+      );
+      const results = await Promise.all(uploadPromises);
+      uploadedUrls = results.map(r => r.url);
+      console.log(`✅ Đã tải xong ${uploadedUrls.length} ảnh lên Vietnix S3.`);
+    }
+
+    // 2. Kết hợp với các URL ảnh có sẵn (nếu có)
+    let existingImages = [];
+    if (p.images) {
+      try {
+        existingImages = typeof p.images === 'string' ? JSON.parse(p.images) : p.images;
+      } catch {
+        existingImages = Array.isArray(p.images) ? p.images : [p.images];
+      }
+    }
+    p.images = [...existingImages, ...uploadedUrls];
+
+    // 3. Chuẩn hóa các trường khi gửi từ FormData
+    if (typeof p.sizes === 'string') {
+      try { p.sizes = JSON.parse(p.sizes); } catch { p.sizes = p.sizes.split(',').map(s => s.trim()).filter(Boolean); }
+    }
+    if (typeof p.colors === 'string') {
+      try { p.colors = JSON.parse(p.colors); } catch { p.colors = p.colors.split(',').map(c => c.trim()).filter(Boolean); }
+    }
+    if (p.buyPrice !== undefined && p.buyPrice !== '') p.buyPrice = Number(p.buyPrice);
+    if (p.originalPrice !== undefined && p.originalPrice !== '') p.originalPrice = Number(p.originalPrice);
+    if (p.rentPrice1Day !== undefined && p.rentPrice1Day !== '') p.rentPrice1Day = Number(p.rentPrice1Day);
+    if (p.rentPrice3Days !== undefined && p.rentPrice3Days !== '') p.rentPrice3Days = Number(p.rentPrice3Days);
+    if (p.rentPrice7Days !== undefined && p.rentPrice7Days !== '') p.rentPrice7Days = Number(p.rentPrice7Days);
+    if (p.deposit !== undefined && p.deposit !== '') p.deposit = Number(p.deposit);
+    if (p.shippingFee !== undefined && p.shippingFee !== '') p.shippingFee = Number(p.shippingFee);
+
+    // 4. Xác định ảnh bìa (featuredImage)
+    const featuredIdx = Number(p.featuredIndex) || 0;
+    if (Array.isArray(p.images) && p.images.length > 0) {
+      p.featuredImage = p.images[featuredIdx] || p.images[0];
+    }
 
     if (!p.title) {
       return res.status(400).json({ success: false, message: 'Tiêu đề sản phẩm không được để trống' });
     }
-    if (!p.featuredImage) {
-      return res.status(400).json({ success: false, message: 'Vui lòng cung cấp ít nhất 1 ảnh đại diện cho sản phẩm' });
+    if (!p.featuredImage && (!p.images || p.images.length === 0)) {
+      return res.status(400).json({ success: false, message: 'Vui lòng cung cấp ít nhất 1 ảnh cho sản phẩm' });
     }
 
     const created = await db.createProduct(p);

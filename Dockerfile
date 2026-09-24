@@ -1,7 +1,7 @@
 # ==========================================
 # DOCKERFILE CHO BI BI FASHION BACKEND
 # ==========================================
-FROM node:20-alpine
+FROM node:22-alpine
 
 # Cài đặt curl phục vụ cho Healthcheck
 RUN apk add --no-cache curl

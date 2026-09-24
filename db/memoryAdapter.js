@@ -11,7 +11,7 @@ export class MemoryAdapter {
         id: 'prod-1',
         title: 'Đầm Trắng Nàng Thơ Cổ Vuông Tay Bồng Xòe Tơ Lụa',
         description: 'Mẫu đầm trắng tinh khôi độc quyền từ Bi Bi Boutique. Thiết kế cổ vuông quý phái, tay bồng công chúa xếp nếp bồng bềnh.',
-        category: 'party-dress',
+        category: 'dam-dai',
         gender: 'women',
         brand: 'Nàng Thơ Boutique',
         type: 'both',

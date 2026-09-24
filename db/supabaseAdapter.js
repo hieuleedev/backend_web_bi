@@ -133,7 +133,7 @@ export class SupabaseAdapter {
       id,
       title: data.title,
       description: data.description || '',
-      category: data.category || 'party-dress',
+      category: data.category || 'dam-dai',
       brand: data.brand || 'Bi Bi Collection',
       type: data.type || 'both',
       status: (data.status === 'approved' || data.status === 'active') ? 'active' : (data.status || 'active'),

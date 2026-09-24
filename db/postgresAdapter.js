@@ -158,7 +158,7 @@ export class PostgresAdapter {
       ) RETURNING *
     `;
     const values = [
-      id, data.title, data.description || '', data.category || 'party-dress', data.brand || 'Bi Bi Collection', data.type || 'both', data.status || 'active',
+      id, data.title, data.description || '', data.category || 'dam-dai', data.brand || 'Bi Bi Collection', data.type || 'both', data.status || 'active',
       data.buyPrice || 0, data.rentPrice1Day || 0, data.rentPrice3Days || 0, data.rentPrice7Days || 0, data.deposit || 0,
       data.sizes || ['S', 'M', 'L'], data.colors || ['Trắng'], data.material || '', data.condition || 'Mới 100%', data.featuredImage, data.images || [data.featuredImage],
       data.sellerId || 'user-seller-1', data.sellerName || 'Bi Bi Boutique (Linh Bi)', data.sellerAvatar || '', data.sellerRating || 5.0, data.location || 'Đà Nẵng',

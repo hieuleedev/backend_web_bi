@@ -18,11 +18,8 @@ RUN npm ci --omit=dev
 # Copy toàn bộ mã nguồn
 COPY . .
 
-# Tạo thư mục uploads và backups nếu chưa có, sau đó phân quyền cho user node
-RUN mkdir -p uploads backups && chown -R node:node /app
-
-# Sử dụng non-root user để tăng tính bảo mật
-USER node
+# Tạo thư mục uploads và backups nếu chưa có
+RUN mkdir -p uploads backups
 
 # Biến môi trường mặc định
 ENV NODE_ENV=production

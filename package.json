@@ -12,6 +12,10 @@
     "pm2:restart": "pm2 restart backend-web-bi",
     "pm2:logs": "pm2 logs backend-web-bi",
     "pm2:status": "pm2 status",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
     "db:init": "node db/migrate.js",
     "db:export": "node db/export.js",
     "db:import": "node db/import.js"

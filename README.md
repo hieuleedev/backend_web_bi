@@ -24,14 +24,40 @@ cp .env.example .env
 Mặc định hệ thống kết nối với **Supabase**. Bạn có thể tùy biến các biến môi trường nếu cần.
 
 ### 3. Khởi chạy Server
+
+#### Cách 1: Chạy trực tiếp với Node / PM2
 ```bash
 # Chạy ở chế độ phát triển (tự reload khi sửa code)
 npm run dev
 
-# Hoặc chạy Production
+# Hoặc chạy Production với Node
 npm start
+
+# Hoặc quản lý tiến trình bằng PM2
+npm run pm2:start
 ```
-Server sẽ chạy tại: `http://localhost:5050`
+
+#### Cách 2: Triển khai trên máy chủ (Server/VPS) bằng Docker & Docker Compose
+```bash
+# 1. Build image Docker
+docker compose build
+# hoặc: npm run docker:build
+
+# 2. Khởi chạy container ngầm (Detached mode)
+docker compose up -d
+# hoặc: npm run docker:up
+
+# 3. Xem log thời gian thực
+docker compose logs -f
+# hoặc: npm run docker:logs
+
+# 4. Dừng container khi cần
+docker compose down
+# hoặc: npm run docker:down
+```
+
+Server sẽ chạy tại: `http://localhost:5050` (hoặc cổng cấu hình trong `.env`).
+Dữ liệu thư mục `uploads/` và `backups/` được mount ra ngoài volume máy chủ nên không bị mất khi cập nhật hoặc rebuild image.
 
 ## 🔗 Các API Endpoint chính
 - `GET /api/health`: Kiểm tra tình trạng kết nối Server và Database

@@ -159,7 +159,7 @@ export class PostgresAdapter {
     `;
     const values = [
       id, data.title, data.description || '', data.category || 'dam-dai', data.brand || 'Bi Bi Collection', data.type || 'both', data.status || 'active',
-      data.buyPrice || 0, data.rentPrice1Day || 0, data.rentPrice3Days || 0, data.rentPrice7Days || 0, data.deposit || 0,
+      data.buyPrice || 0, data.rentPrice1Day || 0, data.rentPrice2Days || 0, data.rentPrice3Days || 0, data.deposit || 0,
       data.sizes || ['S', 'M', 'L'], data.colors || ['Trắng'], data.material || '', data.condition || 'Mới 100%', data.featuredImage, data.images || [data.featuredImage],
       data.sellerId || 'user-seller-1', data.sellerName || 'Bi Bi Boutique (Linh Bi)', data.sellerAvatar || '', data.sellerRating || 5.0, data.location || 'Đà Nẵng',
       1, 5.0, 0
@@ -175,8 +175,8 @@ export class PostgresAdapter {
 
     const mapping = {
       title: 'title', description: 'description', category: 'category', brand: 'brand', type: 'type',
-      buyPrice: 'buy_price', rentPrice1Day: 'rent_price_1day', rentPrice3Days: 'rent_price_3days',
-      rentPrice7Days: 'rent_price_7days', deposit: 'deposit', sizes: 'sizes', colors: 'colors',
+      buyPrice: 'buy_price', rentPrice1Day: 'rent_price_1day', rentPrice2Days: 'rent_price_3days',
+      rentPrice3Days: 'rent_price_7days', deposit: 'deposit', sizes: 'sizes', colors: 'colors',
       material: 'material', condition: 'condition', featuredImage: 'featured_image', images: 'images'
     };
 
@@ -573,7 +573,8 @@ export class PostgresAdapter {
       status: p.status === 'active' ? 'approved' : p.status,
       buyPrice: Number(p.buy_price || 0),
       rentPrice1Day: Number(p.rent_price_1day || 0),
-      rentPrice3Days: Number(p.rent_price_3days || 0),
+      rentPrice2Days: Number(p.rent_price_3days || 0),
+      rentPrice3Days: Number(p.rent_price_7days || 0),
       rentPrice7Days: Number(p.rent_price_7days || 0),
       deposit: Number(p.deposit || 0),
       sizes: p.sizes || ['S', 'M', 'L'],

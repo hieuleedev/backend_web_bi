@@ -247,6 +247,63 @@ app.get('/api/products/:id/calendar', async (req, res) => {
   }
 });
 
+// GET /api/og/product/:id - Trả về HTML chứa Open Graph meta tags cho sản phẩm (Zalo, Facebook, Messenger)
+app.get('/api/og/product/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = await db.getProductById(id);
+    if (!product) {
+      return res.redirect('https://bichothuedo.vercel.app/');
+    }
+
+    const title = product.title || 'Bi Bi - Cho Thuê Đồ Núi Thành';
+    const rentPrice = product.rentPrice1Day ? `${product.rentPrice1Day.toLocaleString('vi-VN')}₫/ngày` : '';
+    const desc = `${title}${rentPrice ? ' • Giá thuê chỉ từ ' + rentPrice : ''}. Cho thuê váy thiết kế, đầm tiệc cao cấp tại Bi Bi Boutique Núi Thành.`;
+    const image = product.featuredImage || (product.images && product.images[0]) || 'https://s3.vn-hcm-1.vietnix.cloud/web-bi-images/products/prod-1790259007504-955857.jpg';
+    const canonicalUrl = `https://bichothuedo.vercel.app/product/${encodeURIComponent(id)}`;
+
+    const html = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>${title} | Bi Bi - Cho Thuê Đồ Núi Thành</title>
+  <meta name="description" content="${desc}" />
+
+  <!-- Open Graph / Facebook / Zalo / Messenger -->
+  <meta property="og:type" content="product" />
+  <meta property="og:url" content="${canonicalUrl}" />
+  <meta property="og:title" content="${title} | Bi Bi - Cho Thuê Đồ Núi Thành" />
+  <meta property="og:description" content="${desc}" />
+  <meta property="og:image" content="${image}" />
+  <meta property="og:image:secure_url" content="${image}" />
+  <meta property="og:image:width" content="800" />
+  <meta property="og:image:height" content="800" />
+  <meta property="og:site_name" content="Bi Bi - Cho Thuê Đồ Núi Thành" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:url" content="${canonicalUrl}" />
+  <meta name="twitter:title" content="${title} | Bi Bi - Cho Thuê Đồ Núi Thành" />
+  <meta name="twitter:description" content="${desc}" />
+  <meta name="twitter:image" content="${image}" />
+
+  <script>window.location.replace("${canonicalUrl}");</script>
+  <meta http-equiv="refresh" content="0;url=${canonicalUrl}" />
+</head>
+<body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+  <p>Đang chuyển hướng đến <a href="${canonicalUrl}">${title}</a>...</p>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400');
+    return res.send(html);
+  } catch (err) {
+    console.error('OG Preview error:', err);
+    res.redirect('https://bichothuedo.vercel.app/');
+  }
+});
+
 // POST /api/products - ĐĂNG SẢN PHẨM MỚI (Hỗ trợ JSON lẫn Multipart FormData gửi kèm ảnh)
 app.post('/api/products', upload.array('images', 10), async (req, res) => {
   try {

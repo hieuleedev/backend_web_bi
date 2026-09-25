@@ -140,7 +140,7 @@ export class SupabaseAdapter {
       buy_price: data.buyPrice || 0,
       rent_price_1day: data.rentPrice1Day || 0,
       rent_price_3days: data.rentPrice3Days || 0,
-      rent_price_7days: data.rentPrice7Days || 0,
+      rent_price_7days: data.rentPrice2Days || data.rentPrice7Days || 0,
       deposit: data.deposit || 0,
       sizes: data.sizes || ['S', 'M', 'L'],
       colors: data.colors || ['Trắng'],
@@ -174,8 +174,9 @@ export class SupabaseAdapter {
     if (data.status !== undefined) payload.status = data.status === 'approved' ? 'active' : data.status;
     if (data.buyPrice !== undefined) payload.buy_price = data.buyPrice;
     if (data.rentPrice1Day !== undefined) payload.rent_price_1day = data.rentPrice1Day;
+    if (data.rentPrice2Days !== undefined) payload.rent_price_7days = data.rentPrice2Days;
+    else if (data.rentPrice7Days !== undefined) payload.rent_price_7days = data.rentPrice7Days;
     if (data.rentPrice3Days !== undefined) payload.rent_price_3days = data.rentPrice3Days;
-    if (data.rentPrice7Days !== undefined) payload.rent_price_7days = data.rentPrice7Days;
     if (data.deposit !== undefined) payload.deposit = data.deposit;
     if (data.sizes !== undefined) payload.sizes = data.sizes;
     if (data.colors !== undefined) payload.colors = data.colors;
@@ -620,6 +621,9 @@ export class SupabaseAdapter {
       status: p.status === 'active' ? 'approved' : p.status,
       buyPrice: p.buy_price,
       rentPrice1Day: p.rent_price_1day,
+      rentPrice2Days: (p.rent_price_7days && p.rent_price_7days < p.rent_price_3days)
+        ? p.rent_price_7days
+        : (p.rent_price_2days || (p.rent_price_3days ? Math.round((p.rent_price_3days * 0.85) / 1000) * 1000 : 0)),
       rentPrice3Days: p.rent_price_3days,
       rentPrice7Days: p.rent_price_7days,
       deposit: p.deposit,

@@ -285,8 +285,10 @@ app.post('/api/products', upload.array('images', 10), async (req, res) => {
     if (p.buyPrice !== undefined && p.buyPrice !== '') p.buyPrice = Number(p.buyPrice);
     if (p.originalPrice !== undefined && p.originalPrice !== '') p.originalPrice = Number(p.originalPrice);
     if (p.rentPrice1Day !== undefined && p.rentPrice1Day !== '') p.rentPrice1Day = Number(p.rentPrice1Day);
+    if (p.rentPrice2Days !== undefined && p.rentPrice2Days !== '') p.rentPrice2Days = Number(p.rentPrice2Days);
     if (p.rentPrice3Days !== undefined && p.rentPrice3Days !== '') p.rentPrice3Days = Number(p.rentPrice3Days);
     if (p.rentPrice7Days !== undefined && p.rentPrice7Days !== '') p.rentPrice7Days = Number(p.rentPrice7Days);
+    if (p.extraDayPrice !== undefined && p.extraDayPrice !== '') p.extraDayPrice = Number(p.extraDayPrice);
     if (p.deposit !== undefined && p.deposit !== '') p.deposit = Number(p.deposit);
     if (p.shippingFee !== undefined && p.shippingFee !== '') p.shippingFee = Number(p.shippingFee);
 

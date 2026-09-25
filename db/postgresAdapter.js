@@ -576,6 +576,7 @@ export class PostgresAdapter {
       rentPrice2Days: Number(p.rent_price_3days || 0),
       rentPrice3Days: Number(p.rent_price_7days || 0),
       rentPrice7Days: Number(p.rent_price_7days || 0),
+      extraDayPrice: Number(p.extra_day_price || 20000),
       deposit: Number(p.deposit || 0),
       sizes: p.sizes || ['S', 'M', 'L'],
       colors: p.colors || ['Trắng'],

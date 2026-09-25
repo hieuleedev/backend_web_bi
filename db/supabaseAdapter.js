@@ -623,6 +623,7 @@ export class SupabaseAdapter {
       rentPrice2Days: Number(p.rent_price_3days || 0), // Cột rent_price_3days trong DB chính là ngày 2
       rentPrice3Days: Number(p.rent_price_7days || 0), // Cột rent_price_7days trong DB chính là ngày 3
       rentPrice7Days: Number(p.rent_price_7days || 0),
+      extraDayPrice: Number(p.extra_day_price || 20000),
       deposit: p.deposit,
       sizes: p.sizes || ['S', 'M', 'L'],
       colors: p.colors || ['Trắng'],

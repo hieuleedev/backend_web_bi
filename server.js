@@ -575,10 +575,11 @@ app.get('/api/config/bank', (req, res) => {
 // POST /api/orders - Tạo đơn hàng mới (tự động tạo lịch thuê nếu có đồ thuê & tự sinh mã VietQR)
 app.post('/api/orders', async (req, res) => {
   try {
-    const { customerName, customerPhone, shippingAddress, items } = req.body;
-    if (!customerName || !customerPhone || !shippingAddress || !items || items.length === 0) {
-      return res.status(400).json({ success: false, message: 'Vui lòng điền đầy đủ thông tin nhận hàng và sản phẩm' });
+    const { customerName, customerPhone, items } = req.body;
+    if (!customerName || !customerPhone || !items || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'Vui lòng điền đầy đủ thông tin khách hàng và sản phẩm' });
     }
+    req.body.shippingAddress = req.body.shippingAddress || 'Nhận trực tiếp tại tiệm';
 
     const { order, orderCode } = await db.createOrder(req.body);
 

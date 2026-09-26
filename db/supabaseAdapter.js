@@ -421,15 +421,18 @@ export class SupabaseAdapter {
     const id = orderData.id || `ord-${Date.now()}`;
     const orderCode = orderData.orderCode || `BB-${Math.floor(10000 + Math.random() * 90000)}`;
 
+    const statusMap = { rented: 'renting', preparing: 'confirmed' };
+    const dbStatus = statusMap[orderData.status] || orderData.status || 'pending';
+
     const payload = {
       id,
       order_code: orderCode,
       customer_name: orderData.customerName,
       customer_phone: orderData.customerPhone,
-      shipping_address: orderData.shippingAddress,
+      shipping_address: orderData.shippingAddress || 'Nhận trực tiếp tại tiệm',
       delivery_method: orderData.deliveryMethod || 'shipping',
       payment_method: orderData.paymentMethod || 'cod',
-      status: orderData.status || 'pending',
+      status: dbStatus,
       total_rent_fee: orderData.totalRentFee || orderData.subtotal || 0,
       total_buy_price: orderData.totalBuyPrice || 0,
       total_deposit: orderData.totalDeposit || orderData.depositTotal || 0,
@@ -467,7 +470,8 @@ export class SupabaseAdapter {
 
   async updateOrderStatus(id, { status, depositStatus, paymentStatus }) {
     const payload = {};
-    if (status) payload.status = status;
+    const statusMap = { rented: 'renting', preparing: 'confirmed' };
+    if (status) payload.status = statusMap[status] || status;
     if (depositStatus) payload.deposit_status = depositStatus;
     if (paymentStatus) payload.payment_status = paymentStatus;
     if (status === 'completed' && !depositStatus) payload.deposit_status = 'refunded';
@@ -669,7 +673,7 @@ export class SupabaseAdapter {
       shippingFee,
       serviceFee: 0,
       totalAmount: calculatedTotal,
-      status: row.status,
+      status: row.status === 'renting' ? 'rented' : row.status,
       depositStatus: row.deposit_status || 'none',
       notes: row.note || row.notes || '',
       createdAt: row.created_at,

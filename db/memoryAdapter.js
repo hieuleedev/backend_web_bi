@@ -150,6 +150,7 @@ export class MemoryAdapter {
     const reqEnd = new Date(endDate).getTime();
 
     const conflicts = bookings.filter(b => {
+      if (b.status === 'cancelled' || b.status === 'completed' || b.status === 'returned') return false;
       const bStart = new Date(b.startDate || b.start_date).getTime();
       const bEnd = new Date(b.endDate || b.end_date).getTime();
       return reqStart <= bEnd && reqEnd >= bStart;
@@ -342,6 +343,23 @@ export class MemoryAdapter {
     if (depositStatus) order.depositStatus = depositStatus;
     if (paymentStatus) order.paymentStatus = paymentStatus;
     if (status === 'completed' && !depositStatus) order.depositStatus = 'refunded';
+
+    if (status === 'completed' || status === 'returned') {
+      const today = new Date().toISOString().split('T')[0];
+      this.rentalBookings.forEach(b => {
+        if (b.orderId === id) {
+          b.status = 'completed';
+          if (b.endDate > today) {
+            b.endDate = b.startDate > today ? b.startDate : today;
+          }
+        }
+      });
+    } else if (status === 'cancelled') {
+      this.rentalBookings.forEach(b => {
+        if (b.orderId === id) b.status = 'cancelled';
+      });
+    }
+
     return order;
   }
 

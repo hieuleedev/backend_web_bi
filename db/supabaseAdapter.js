@@ -233,6 +233,7 @@ export class SupabaseAdapter {
     const reqEnd = new Date(endDate).getTime();
 
     const conflicts = bookings.filter(b => {
+      if (b.status === 'cancelled' || b.status === 'completed' || b.status === 'returned') return false;
       const bStart = new Date(b.start_date).getTime();
       const bEnd = new Date(b.end_date).getTime();
       return reqStart <= bEnd && reqEnd >= bStart;
@@ -308,9 +309,10 @@ export class SupabaseAdapter {
 
     if (error) throw error;
 
-    // Tạo danh sách từng ngày cụ thể đã bị khóa (dùng để tô màu lịch trên Frontend)
+    // Tạo danh sách từng ngày cụ thể đã bị khóa (chỉ khóa ngày các đơn đang thuê/đặt, giải phóng nếu đã trả đồ)
     const blockedDates = [];
     (bookings || []).forEach(b => {
+      if (b.status === 'cancelled' || b.status === 'completed' || b.status === 'returned') return;
       let current = new Date(b.start_date);
       const end = new Date(b.end_date);
       while (current <= end) {
@@ -443,6 +445,17 @@ export class SupabaseAdapter {
       created_at: new Date().toISOString()
     };
 
+    // Kiểm tra trùng lịch trước khi tạo đơn
+    for (const item of (orderData.items || [])) {
+      if (item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate) {
+        const check = await this.checkRentalAvailability(item.productId, item.rentalStartDate, item.rentalEndDate);
+        if (!check.isAvailable) {
+          const conflict = check.conflicts[0];
+          throw new Error(`Mẫu váy "${item.productTitle || 'này'}" đã có khách thuê từ ${conflict?.startDate} đến ${conflict?.endDate}! Vui lòng chọn ngày khác.`);
+        }
+      }
+    }
+
     const { data: created, error } = await this.client.from('orders').insert(payload).select().single();
     if (error) throw error;
 
@@ -478,6 +491,34 @@ export class SupabaseAdapter {
 
     const { data, error } = await this.client.from('orders').update(payload).eq('id', id).select().single();
     if (error) throw error;
+
+    // Cập nhật trạng thái lịch thuê liên quan đến đơn này
+    const isCompleted = status === 'completed' || status === 'returned' || payload.status === 'completed' || payload.status === 'returned';
+    if (isCompleted) {
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const { data: bookings } = await this.client.from('rental_bookings').select('*').eq('order_id', id);
+        if (bookings && bookings.length > 0) {
+          for (const b of bookings) {
+            const updateFields = { status: 'completed' };
+            // Nếu khách trả đồ trước hạn, rút ngắn ngày kết thúc về hôm nay để giải phóng các ngày sau đó!
+            if (b.end_date > today) {
+              updateFields.end_date = b.start_date > today ? b.start_date : today;
+            }
+            await this.client.from('rental_bookings').update(updateFields).eq('id', b.id);
+          }
+        }
+      } catch (errBooking) {
+        console.warn('Lỗi cập nhật rental_bookings khi trả đồ:', errBooking);
+      }
+    } else if (status === 'cancelled' || payload.status === 'cancelled') {
+      try {
+        await this.client.from('rental_bookings').update({ status: 'cancelled' }).eq('order_id', id);
+      } catch (errBooking) {
+        console.warn('Lỗi hủy rental_bookings:', errBooking);
+      }
+    }
+
     return this._formatOrder(data);
   }
 

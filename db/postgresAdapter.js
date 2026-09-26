@@ -228,6 +228,7 @@ export class PostgresAdapter {
     const reqEnd = new Date(endDate).getTime();
 
     const conflicts = bookings.filter(b => {
+      if (b.status === 'cancelled' || b.status === 'completed' || b.status === 'returned') return false;
       const bStart = new Date(b.start_date).getTime();
       const bEnd = new Date(b.end_date).getTime();
       return reqStart <= bEnd && reqEnd >= bStart;
@@ -297,6 +298,7 @@ export class PostgresAdapter {
 
     const blockedDates = [];
     bookings.forEach(b => {
+      if (b.status === 'cancelled' || b.status === 'completed' || b.status === 'returned') return;
       let current = new Date(b.start_date);
       const end = new Date(b.end_date);
       while (current <= end) {
@@ -469,6 +471,29 @@ export class PostgresAdapter {
     values.push(id);
     const sql = `UPDATE public.orders SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`;
     const { rows } = await this.pool.query(sql, values);
+
+    // Cập nhật trạng thái lịch thuê liên quan đến đơn này
+    const isCompleted = status === 'completed' || mappedStatus === 'completed' || status === 'returned';
+    if (isCompleted) {
+      try {
+        await this.pool.query(
+          `UPDATE public.rental_bookings 
+           SET status = 'completed', 
+               end_date = CASE WHEN end_date > CURRENT_DATE THEN GREATEST(start_date, CURRENT_DATE) ELSE end_date END 
+           WHERE order_id = $1`,
+          [id]
+        );
+      } catch (errBooking) {
+        console.warn('Lỗi cập nhật rental_bookings khi trả đồ:', errBooking);
+      }
+    } else if (status === 'cancelled' || mappedStatus === 'cancelled') {
+      try {
+        await this.pool.query(`UPDATE public.rental_bookings SET status = 'cancelled' WHERE order_id = $1`, [id]);
+      } catch (errBooking) {
+        console.warn('Lỗi hủy rental_bookings:', errBooking);
+      }
+    }
+
     return rows.length > 0 ? rows[0] : null;
   }
 

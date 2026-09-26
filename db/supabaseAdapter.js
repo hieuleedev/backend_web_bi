@@ -78,6 +78,39 @@ export class SupabaseAdapter {
           renterName: b.renter_name
         });
       });
+
+      // Đồng thời đồng bộ các đơn hàng đang thuê từ bảng orders
+      try {
+        const { data: activeOrders } = await this.client
+          .from('orders')
+          .select('*')
+          .in('status', ['rented', 'renting', 'confirmed', 'pending']);
+
+        (activeOrders || []).forEach(ord => {
+          (ord.items || []).forEach(item => {
+            if (item.mode === 'rent' && item.productId && item.rentalStartDate && item.rentalEndDate) {
+              if (!bookingsMap[item.productId]) bookingsMap[item.productId] = [];
+              const s = (item.rentalStartDate || '').split('T')[0];
+              const e = (item.rentalEndDate || '').split('T')[0];
+              const exists = bookingsMap[item.productId].some(b => 
+                (b.startDate || '').split('T')[0] === s && (b.endDate || '').split('T')[0] === e && b.status !== 'cancelled'
+              );
+              if (!exists) {
+                bookingsMap[item.productId].push({
+                  id: `order-book-${ord.id}-${item.productId}`,
+                  orderId: ord.id,
+                  startDate: s,
+                  endDate: e,
+                  status: 'confirmed',
+                  renterName: ord.customer_name ? `${ord.customer_name} (${ord.customer_phone || ''})` : 'Khách thuê'
+                });
+              }
+            }
+          });
+        });
+      } catch (ordErr) {
+        console.warn('Lỗi đồng bộ lịch từ đơn hàng:', ordErr);
+      }
     }
 
     return (products || []).map(p => this._formatProduct(p, bookingsMap[p.id] || []));
@@ -229,15 +262,47 @@ export class SupabaseAdapter {
 
   async checkRentalAvailability(productId, startDate, endDate) {
     const bookings = await this.getRentalBookings(productId);
-    const reqStart = new Date(startDate).getTime();
-    const reqEnd = new Date(endDate).getTime();
+    const s = String(startDate).split('T')[0];
+    const e = String(endDate).split('T')[0];
 
-    const conflicts = bookings.filter(b => {
+    const conflicts = (bookings || []).filter(b => {
       if (b.status === 'cancelled' || b.status === 'completed' || b.status === 'returned') return false;
-      const bStart = new Date(b.start_date).getTime();
-      const bEnd = new Date(b.end_date).getTime();
-      return reqStart <= bEnd && reqEnd >= bStart;
+      const bStart = String(b.start_date).split('T')[0];
+      const bEnd = String(b.end_date).split('T')[0];
+      return s <= bEnd && e >= bStart;
     });
+
+    // Kiểm tra thêm đơn hàng đang hoạt động trong bảng orders phòng trường hợp chưa đồng bộ
+    try {
+      const { data: activeOrders } = await this.client
+        .from('orders')
+        .select('*')
+        .in('status', ['rented', 'renting', 'confirmed', 'pending']);
+
+      (activeOrders || []).forEach(ord => {
+        (ord.items || []).forEach(item => {
+          if (item.productId === productId && item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate) {
+            const ordStart = String(item.rentalStartDate).split('T')[0];
+            const ordEnd = String(item.rentalEndDate).split('T')[0];
+            if (s <= ordEnd && e >= ordStart) {
+              const alreadyExists = conflicts.some(c => 
+                (c.order_id && c.order_id === ord.id) || 
+                (String(c.start_date).split('T')[0] === ordStart && String(c.end_date).split('T')[0] === ordEnd)
+              );
+              if (!alreadyExists) {
+                conflicts.push({
+                  start_date: ordStart,
+                  end_date: ordEnd,
+                  renter_name: ord.customer_name || 'Khách đặt qua web'
+                });
+              }
+            }
+          }
+        });
+      });
+    } catch (err) {
+      console.warn('Lỗi kiểm tra orders trong checkRentalAvailability:', err);
+    }
 
     return {
       isAvailable: conflicts.length === 0,
@@ -309,9 +374,45 @@ export class SupabaseAdapter {
 
     if (error) throw error;
 
+    const allBookings = [...(bookings || [])];
+    try {
+      const { data: activeOrders } = await this.client
+        .from('orders')
+        .select('*')
+        .in('status', ['rented', 'renting', 'confirmed', 'pending']);
+
+      (activeOrders || []).forEach(ord => {
+        (ord.items || []).forEach(item => {
+          if (item.productId === productId && item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate) {
+            const s = (item.rentalStartDate || '').split('T')[0];
+            const e = (item.rentalEndDate || '').split('T')[0];
+            const exists = allBookings.some(b => 
+              (b.start_date || '').split('T')[0] === s && (b.end_date || '').split('T')[0] === e && b.status !== 'cancelled'
+            );
+            if (!exists) {
+              allBookings.push({
+                id: `order-cal-${ord.id}-${item.productId}`,
+                order_id: ord.id,
+                product_id: productId,
+                start_date: s,
+                end_date: e,
+                status: 'confirmed',
+                renter_name: ord.customer_name ? `${ord.customer_name} (${ord.customer_phone || ''})` : 'Khách thuê',
+                renter_phone: ord.customer_phone || '',
+                note: `Đơn hàng ${ord.order_code || ''}`,
+                created_at: ord.created_at
+              });
+            }
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('Lỗi lấy đơn hàng trong getProductCalendar:', e);
+    }
+
     // Tạo danh sách từng ngày cụ thể đã bị khóa (chỉ khóa ngày các đơn đang thuê/đặt, giải phóng nếu đã trả đồ)
     const blockedDates = [];
-    (bookings || []).forEach(b => {
+    allBookings.forEach(b => {
       if (b.status === 'cancelled' || b.status === 'completed' || b.status === 'returned') return;
       let current = new Date(b.start_date);
       const end = new Date(b.end_date);
@@ -323,8 +424,8 @@ export class SupabaseAdapter {
 
     return {
       product,
-      totalBookings: (bookings || []).length,
-      bookings: (bookings || []).map(b => ({
+      totalBookings: allBookings.length,
+      bookings: allBookings.map(b => ({
         id: b.id,
         orderId: b.order_id,
         startDate: b.start_date,

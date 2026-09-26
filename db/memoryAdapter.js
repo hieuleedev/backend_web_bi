@@ -146,14 +146,14 @@ export class MemoryAdapter {
 
   async checkRentalAvailability(productId, startDate, endDate) {
     const bookings = await this.getRentalBookings(productId);
-    const reqStart = new Date(startDate).getTime();
-    const reqEnd = new Date(endDate).getTime();
+    const s = String(startDate).split('T')[0];
+    const e = String(endDate).split('T')[0];
 
-    const conflicts = bookings.filter(b => {
+    const conflicts = (bookings || []).filter(b => {
       if (b.status === 'cancelled' || b.status === 'completed' || b.status === 'returned') return false;
-      const bStart = new Date(b.startDate || b.start_date).getTime();
-      const bEnd = new Date(b.endDate || b.end_date).getTime();
-      return reqStart <= bEnd && reqEnd >= bStart;
+      const bStart = String(b.startDate || b.start_date).split('T')[0];
+      const bEnd = String(b.endDate || b.end_date).split('T')[0];
+      return s <= bEnd && e >= bStart;
     });
 
     return {
@@ -299,6 +299,17 @@ export class MemoryAdapter {
   async createOrder(orderData) {
     const id = orderData.id || `ord-${Date.now()}`;
     const orderCode = orderData.orderCode || `BB-${Math.floor(10000 + Math.random() * 90000)}`;
+
+    // Kiểm tra trùng lịch trước khi tạo đơn
+    for (const item of (orderData.items || [])) {
+      if (item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate) {
+        const check = await this.checkRentalAvailability(item.productId, item.rentalStartDate, item.rentalEndDate);
+        if (!check.isAvailable) {
+          const conflict = check.conflicts[0];
+          throw new Error(`Mẫu váy "${item.productTitle || 'này'}" đã có khách thuê từ ${conflict?.startDate} đến ${conflict?.endDate}! Vui lòng chọn ngày khác.`);
+        }
+      }
+    }
 
     const order = {
       id,

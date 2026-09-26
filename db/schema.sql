@@ -158,8 +158,8 @@ CREATE TABLE IF NOT EXISTS public.bank_configs (
   id TEXT PRIMARY KEY DEFAULT 'default_bank',
   bank_id TEXT NOT NULL DEFAULT 'MB',
   bank_name TEXT NOT NULL DEFAULT 'MB Bank (Ngân hàng TMCP Quân Đội)',
-  account_no TEXT NOT NULL DEFAULT '0795623097',
-  account_name TEXT NOT NULL DEFAULT 'LE TRUNG HIEU',
+  account_no TEXT NOT NULL DEFAULT '3330106140201',
+  account_name TEXT NOT NULL DEFAULT 'BUI THI KIEU OANH',
   template TEXT DEFAULT 'compact2',
   is_active BOOLEAN DEFAULT TRUE,
   updated_at TIMESTAMPTZ DEFAULT NOW()

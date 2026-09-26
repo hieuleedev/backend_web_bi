@@ -548,8 +548,8 @@ app.get('/api/orders/:id', async (req, res) => {
 const VIETQR_CONFIG = {
   bankId: process.env.VIETQR_BANK_ID || 'MB',
   bankName: process.env.VIETQR_BANK_NAME || 'MB Bank (Ngân hàng TMCP Quân Đội)',
-  accountNo: process.env.VIETQR_ACCOUNT_NO || '0795623097',
-  accountName: process.env.VIETQR_ACCOUNT_NAME || 'LE TRUNG HIEU',
+  accountNo: process.env.VIETQR_ACCOUNT_NO || '3330106140201',
+  accountName: process.env.VIETQR_ACCOUNT_NAME || 'BUI THI KIEU OANH',
   template: process.env.VIETQR_TEMPLATE || 'compact2'
 };
 

@@ -451,15 +451,18 @@ export class PostgresAdapter {
     const values = [];
     let idx = 1;
 
-    if (status) {
+    const statusMap = { rented: 'renting', preparing: 'confirmed' };
+    const mappedStatus = status ? (statusMap[status] || status) : undefined;
+
+    if (mappedStatus) {
       updates.push(`status = $${idx++}`);
-      values.push(status);
+      values.push(mappedStatus);
     }
     if (depositStatus) {
       updates.push(`deposit_status = $${idx++}`);
       values.push(depositStatus);
     }
-    if (status === 'completed' && !depositStatus) {
+    if ((status === 'completed' || mappedStatus === 'completed') && !depositStatus) {
       updates.push(`deposit_status = 'refunded'`);
     }
 

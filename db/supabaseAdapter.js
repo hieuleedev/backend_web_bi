@@ -788,4 +788,142 @@ export class SupabaseAdapter {
 
     return Array.from(convMap.values());
   }
+
+  // ==========================================
+  // CUSTOMERS (BẢNG KHÁCH HÀNG & THỐNG KÊ THEO SỐ ĐIỆN THOẠI)
+  // ==========================================
+  async getCustomers(filters = {}) {
+    const { search, sortBy = 'rentCount' } = filters;
+
+    // 1. Thử lấy từ bảng customers nếu bảng đã được tạo
+    try {
+      let query = this.client.from('customers').select('*');
+      if (search) {
+        query = query.or(`phone.ilike.%${search}%,name.ilike.%${search}%`);
+      }
+      const { data: dbCustomers, error } = await query;
+      if (!error && dbCustomers && dbCustomers.length > 0) {
+        // Sắp xếp
+        if (sortBy === 'spent') {
+          return dbCustomers.sort((a, b) => (Number(b.total_spent) || 0) - (Number(a.total_spent) || 0));
+        }
+        return dbCustomers.sort((a, b) => (Number(b.total_rent_count) || 0) - (Number(a.total_rent_count) || 0));
+      }
+    } catch (e) {
+      // Fallback xuống tổng hợp từ bảng orders bên dưới
+    }
+
+    // 2. Tự động tổng hợp và gom nhóm theo số điện thoại từ toàn bộ đơn hàng (Orders)
+    const { data: orders, error: ordersErr } = await this.client
+      .from('orders')
+      .select('*')
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: false });
+
+    if (ordersErr) throw ordersErr;
+
+    const customerMap = new Map();
+
+    for (const ord of (orders || [])) {
+      const phone = (ord.customer_phone || '').trim();
+      if (!phone) continue;
+
+      const items = Array.isArray(ord.items) ? ord.items : [];
+      const hasRent = items.some(i => i.mode === 'rent') || Number(ord.total_rent_fee) > 0;
+      const orderTotal = Number(ord.total_rent_fee || 0) + Number(ord.total_buy_price || 0) + Number(ord.shipping_fee || 0);
+      const isPaid = ord.payment_status === 'paid';
+
+      if (!customerMap.has(phone)) {
+        customerMap.set(phone, {
+          id: `cust-${phone}`,
+          name: ord.customer_name || 'Khách hàng',
+          phone: phone,
+          email: ord.customer_email || '',
+          address: ord.shipping_address || '',
+          total_rent_count: 0,
+          total_orders_count: 0,
+          total_spent: 0,
+          paid_amount: 0,
+          debt: 0,
+          last_order_date: ord.created_at,
+          last_order_code: ord.order_code,
+          is_vip: false,
+          rating: 5.0,
+          notes: ord.notes || '',
+          recent_dresses: []
+        });
+      }
+
+      const c = customerMap.get(phone);
+      c.total_orders_count += 1;
+      if (hasRent) c.total_rent_count += 1;
+      c.total_spent += orderTotal;
+      if (isPaid) {
+        c.paid_amount += orderTotal;
+      } else {
+        c.debt += orderTotal;
+      }
+
+      // Lưu các váy khách từng thuê
+      items.forEach(it => {
+        if (it.productTitle && !c.recent_dresses.includes(it.productTitle)) {
+          c.recent_dresses.push(it.productTitle);
+        }
+      });
+    }
+
+    const result = Array.from(customerMap.values()).map(c => {
+      c.is_vip = c.total_rent_count >= 2 || c.total_spent >= 500000;
+      return c;
+    });
+
+    // Lọc theo từ khóa tìm kiếm nếu có
+    let filtered = result;
+    if (search) {
+      const s = search.toLowerCase();
+      filtered = filtered.filter(c => c.phone.toLowerCase().includes(s) || c.name.toLowerCase().includes(s));
+    }
+
+    // Sắp xếp
+    if (sortBy === 'spent') {
+      filtered.sort((a, b) => b.total_spent - a.total_spent);
+    } else if (sortBy === 'recent') {
+      filtered.sort((a, b) => new Date(b.last_order_date).getTime() - new Date(a.last_order_date).getTime());
+    } else if (sortBy === 'debt') {
+      filtered.sort((a, b) => b.debt - a.debt);
+    } else {
+      // Mặc định: Thuê nhiều nhất
+      filtered.sort((a, b) => b.total_rent_count - a.total_rent_count);
+    }
+
+    return filtered;
+  }
+
+  async getCustomerByPhone(phone) {
+    const cleanPhone = (phone || '').trim();
+    const customers = await this.getCustomers({ search: cleanPhone });
+    const customer = customers.find(c => c.phone === cleanPhone) || {
+      id: `cust-${cleanPhone}`,
+      name: 'Khách hàng mới',
+      phone: cleanPhone,
+      total_rent_count: 0,
+      total_spent: 0,
+      debt: 0
+    };
+
+    // Lấy toàn bộ lịch sử đơn hàng của khách hàng này
+    const { data: customerOrders, error } = await this.client
+      .from('orders')
+      .select('*')
+      .eq('customer_phone', cleanPhone)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return {
+      customer,
+      orders: customerOrders || []
+    };
+  }
 }
+

@@ -93,8 +93,33 @@ BEGIN
     CREATE POLICY "Public insert orders" ON public.orders FOR INSERT WITH CHECK (true);
     CREATE POLICY "Public update orders" ON public.orders FOR UPDATE USING (true);
   END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public read customers') THEN
+    CREATE POLICY "Public read customers" ON public.customers FOR SELECT USING (true);
+    CREATE POLICY "Public insert customers" ON public.customers FOR INSERT WITH CHECK (true);
+    CREATE POLICY "Public update customers" ON public.customers FOR UPDATE USING (true);
+  END IF;
 END
 $$;
+
+-- 3B. Bảng khách hàng (Customers)
+CREATE TABLE IF NOT EXISTS public.customers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT UNIQUE NOT NULL,
+  email TEXT,
+  address TEXT,
+  total_rent_count INTEGER DEFAULT 0,
+  total_spent NUMERIC(12, 2) DEFAULT 0,
+  debt NUMERIC(12, 2) DEFAULT 0,
+  notes TEXT,
+  rating NUMERIC(3, 2) DEFAULT 5.0,
+  is_vip BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+
 
 -- =========================================================
 -- 4. BẢNG TÀI KHOẢN NGƯỜI DÙNG & KHÁCH HÀNG (Users)

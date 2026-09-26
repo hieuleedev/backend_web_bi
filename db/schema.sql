@@ -110,6 +110,23 @@ CREATE TABLE IF NOT EXISTS public.orders (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 5B. BẢNG KHÁCH HÀNG (Customers)
+CREATE TABLE IF NOT EXISTS public.customers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT UNIQUE NOT NULL,
+  email TEXT,
+  address TEXT,
+  total_rent_count INTEGER DEFAULT 0,
+  total_spent NUMERIC(12, 2) DEFAULT 0,
+  debt NUMERIC(12, 2) DEFAULT 0,
+  notes TEXT,
+  rating NUMERIC(3, 2) DEFAULT 5.0,
+  is_vip BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 6. BẢNG ĐÁNH GIÁ & NHẬN XÉT (Reviews)
 CREATE TABLE IF NOT EXISTS public.reviews (
   id TEXT PRIMARY KEY,
@@ -161,3 +178,4 @@ CREATE INDEX IF NOT EXISTS idx_orders_status ON public.orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_created ON public.orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON public.messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created ON public.messages(created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_customers_phone ON public.customers(phone);

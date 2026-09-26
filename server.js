@@ -648,6 +648,131 @@ app.delete('/api/orders/:id', async (req, res) => {
 });
 
 // ============================================================================
+// 5B. CUSTOMERS & DASHBOARD STATS API (BẢNG KHÁCH HÀNG & THỐNG KÊ DASHBOARD)
+// ============================================================================
+
+// GET /api/customers - Lấy danh sách khách hàng (nhóm theo SĐT, sắp xếp theo số lần thuê nhiều nhất)
+app.get('/api/customers', async (req, res) => {
+  try {
+    const { search, sortBy } = req.query;
+    if (typeof db.getCustomers === 'function') {
+      const customers = await db.getCustomers({ search, sortBy });
+      res.json({ success: true, count: customers.length, data: customers });
+    } else {
+      res.json({ success: true, count: 0, data: [] });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi lấy danh sách khách hàng', error: err.message });
+  }
+});
+
+// GET /api/customers/:phone - Lấy chi tiết khách hàng và toàn bộ lịch sử thuê đồ
+app.get('/api/customers/:phone', async (req, res) => {
+  try {
+    const { phone } = req.params;
+    if (typeof db.getCustomerByPhone === 'function') {
+      const data = await db.getCustomerByPhone(phone);
+      res.json({ success: true, data });
+    } else {
+      res.status(404).json({ success: false, message: 'Không tìm thấy khách hàng' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi lấy thông tin khách hàng', error: err.message });
+  }
+});
+
+// GET /api/dashboard/stats - Dashboard thống kê váy hot và khách thuê nhiều nhất
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    const orders = await db.getOrders({ limit: 500 });
+    const validOrders = orders.filter(o => o.status !== 'cancelled');
+
+    // 1. Thống kê váy nào được thuê nhiều nhất
+    const dressMap = new Map();
+    // 2. Thống kê khách nào thuê nhiều nhất
+    const customerMap = new Map();
+
+    let totalRentalCount = 0;
+    let totalRentalRevenue = 0;
+
+    for (const ord of validOrders) {
+      const phone = (ord.customerPhone || ord.customer_phone || '').trim();
+      const customerName = ord.customerName || ord.customer_name || 'Khách hàng';
+      const items = Array.isArray(ord.items) ? ord.items : [];
+      const isPaid = (ord.paymentStatus || ord.payment_status) === 'paid';
+
+      // Tính lượt khách
+      if (phone) {
+        if (!customerMap.has(phone)) {
+          customerMap.set(phone, {
+            phone,
+            name: customerName,
+            rentCount: 0,
+            orderCount: 0,
+            totalSpent: 0,
+            paidAmount: 0,
+            lastOrderDate: ord.createdAt || ord.created_at
+          });
+        }
+        const cust = customerMap.get(phone);
+        cust.orderCount += 1;
+        const ordTotal = (ord.totalAmount || Number(ord.total_rent_fee || 0) + Number(ord.total_buy_price || 0) + Number(ord.shipping_fee || 0));
+        cust.totalSpent += ordTotal;
+        if (isPaid) cust.paidAmount += ordTotal;
+      }
+
+      // Duyệt từng váy
+      items.forEach(it => {
+        if (it.mode === 'rent') {
+          totalRentalCount += (it.quantity || 1);
+          totalRentalRevenue += ((it.price || 0) * (it.quantity || 1));
+
+          if (phone && customerMap.has(phone)) {
+            customerMap.get(phone).rentCount += (it.quantity || 1);
+          }
+
+          const dressId = it.productId || it.productTitle;
+          if (!dressMap.has(dressId)) {
+            dressMap.set(dressId, {
+              id: it.productId,
+              title: it.productTitle,
+              image: it.productImage || '',
+              rentCount: 0,
+              totalRevenue: 0,
+              price: it.price || 0
+            });
+          }
+          const d = dressMap.get(dressId);
+          d.rentCount += (it.quantity || 1);
+          d.totalRevenue += ((it.price || 0) * (it.quantity || 1));
+          if (!d.image && it.productImage) d.image = it.productImage;
+        }
+      });
+    }
+
+    const topDresses = Array.from(dressMap.values()).sort((a, b) => b.rentCount - a.rentCount).slice(0, 10);
+    const topCustomers = Array.from(customerMap.values()).sort((a, b) => b.rentCount - a.rentCount).slice(0, 10);
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalOrders: validOrders.length,
+          totalRentalCount,
+          totalRentalRevenue,
+          uniqueCustomersCount: customerMap.size,
+          uniqueDressesRented: dressMap.size
+        },
+        topDresses,
+        topCustomers
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi tải thống kê dashboard', error: err.message });
+  }
+});
+
+// ============================================================================
 // 6. REVIEWS & COMMENTS API (ĐÁNH GIÁ SẢN PHẨM)
 // ============================================================================
 

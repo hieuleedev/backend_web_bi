@@ -583,10 +583,12 @@ app.post('/api/orders', async (req, res) => {
 
     const { order, orderCode } = await db.createOrder(req.body);
 
-    const totalAmount = Number(order.total_buy_price || 0) + 
-                        Number(order.total_rent_fee || 0) + 
-                        Number(order.total_deposit || 0) + 
-                        Number(order.shipping_fee || 30000);
+    const totalAmount = order.totalAmount !== undefined 
+      ? Number(order.totalAmount)
+      : (Number(order.total_buy_price || order.totalBuyPrice || 0) + 
+         Number(order.total_rent_fee || order.totalRentFee || order.subtotal || 0) + 
+         Number(order.total_deposit || order.totalDeposit || order.depositTotal || 0) + 
+         Number(order.shipping_fee || order.shippingFee || 0));
 
     const vietqrUrl = generateVietQRUrl(totalAmount, orderCode);
 

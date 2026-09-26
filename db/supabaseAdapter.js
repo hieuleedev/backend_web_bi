@@ -539,7 +539,7 @@ export class SupabaseAdapter {
       total_rent_fee: orderData.totalRentFee || orderData.subtotal || 0,
       total_buy_price: orderData.totalBuyPrice || 0,
       total_deposit: orderData.totalDeposit || orderData.depositTotal || 0,
-      shipping_fee: orderData.shippingFee ?? 30000,
+      shipping_fee: orderData.shippingFee ?? 0,
       deposit_status: (orderData.totalDeposit || orderData.depositTotal || 0) > 0 ? 'held' : 'none',
       items: orderData.items || [],
       note: orderData.note || orderData.notes || '',
@@ -590,8 +590,28 @@ export class SupabaseAdapter {
     if (paymentStatus) payload.payment_status = paymentStatus;
     if (status === 'completed' && !depositStatus) payload.deposit_status = 'refunded';
 
-    const { data, error } = await this.client.from('orders').update(payload).eq('id', id).select().single();
-    if (error) throw error;
+    let data;
+    try {
+      const res = await this.client.from('orders').update(payload).eq('id', id).select().single();
+      if (res.error) throw res.error;
+      data = res.data;
+    } catch (err) {
+      if (err.message && (err.message.includes('payment_status') || err.code === 'PGRST204')) {
+        delete payload.payment_status;
+        if (paymentStatus) {
+          const { data: current } = await this.client.from('orders').select('note').eq('id', id).single();
+          let currentNote = current?.note || '';
+          currentNote = currentNote.replace(/\[(DA_THANH_TOAN|CHUA_THANH_TOAN)\]/g, '').trim();
+          const tag = paymentStatus === 'paid' ? '[DA_THANH_TOAN]' : '[CHUA_THANH_TOAN]';
+          payload.note = currentNote ? `${tag} ${currentNote}` : tag;
+        }
+        const retryRes = await this.client.from('orders').update(payload).eq('id', id).select().single();
+        if (retryRes.error) throw retryRes.error;
+        data = retryRes.data;
+      } else {
+        throw err;
+      }
+    }
 
     // Cập nhật trạng thái lịch thuê liên quan đến đơn này
     const isCompleted = status === 'completed' || status === 'returned' || payload.status === 'completed' || payload.status === 'returned';
@@ -635,8 +655,28 @@ export class SupabaseAdapter {
     if (orderData.note !== undefined) payload.note = orderData.note;
     if (orderData.items !== undefined) payload.items = orderData.items;
 
-    const { data, error } = await this.client.from('orders').update(payload).eq('id', id).select().single();
-    if (error) throw error;
+    let data;
+    try {
+      const res = await this.client.from('orders').update(payload).eq('id', id).select().single();
+      if (res.error) throw res.error;
+      data = res.data;
+    } catch (err) {
+      if (err.message && (err.message.includes('payment_status') || err.code === 'PGRST204')) {
+        delete payload.payment_status;
+        if (orderData.paymentStatus !== undefined) {
+          const { data: current } = await this.client.from('orders').select('note').eq('id', id).single();
+          let currentNote = payload.note !== undefined ? payload.note : (current?.note || '');
+          currentNote = currentNote.replace(/\[(DA_THANH_TOAN|CHUA_THANH_TOAN)\]/g, '').trim();
+          const tag = orderData.paymentStatus === 'paid' ? '[DA_THANH_TOAN]' : '[CHUA_THANH_TOAN]';
+          payload.note = currentNote ? `${tag} ${currentNote}` : tag;
+        }
+        const retryRes = await this.client.from('orders').update(payload).eq('id', id).select().single();
+        if (retryRes.error) throw retryRes.error;
+        data = retryRes.data;
+      } else {
+        throw err;
+      }
+    }
     return this._formatOrder(data);
   }
 
@@ -794,8 +834,21 @@ export class SupabaseAdapter {
     const totalBuy = Number(row.total_buy_price || 0);
     const totalRent = Number(row.total_rent_fee || 0);
     const totalDeposit = Number(row.total_deposit || 0);
-    const shippingFee = Number(row.shipping_fee ?? 30000);
+    const shippingFee = Number(row.shipping_fee ?? 0);
     const calculatedTotal = totalBuy + totalRent + totalDeposit + shippingFee;
+
+    let paymentStatus = row.payment_status;
+    if (!paymentStatus) {
+      if ((row.note || '').includes('[DA_THANH_TOAN]')) {
+        paymentStatus = 'paid';
+      } else if ((row.note || '').includes('[CHUA_THANH_TOAN]')) {
+        paymentStatus = 'unpaid';
+      } else {
+        paymentStatus = 'unpaid';
+      }
+    }
+
+    const cleanNote = (row.note || row.notes || '').replace(/\[(DA_THANH_TOAN|CHUA_THANH_TOAN)\]/g, '').trim();
 
     return {
       id: row.id,
@@ -808,7 +861,7 @@ export class SupabaseAdapter {
       shippingAddress: row.shipping_address,
       deliveryMethod: row.delivery_method || 'shipping',
       paymentMethod: row.payment_method || 'cod',
-      paymentStatus: row.payment_status || 'unpaid',
+      paymentStatus,
       items: row.items || [],
       subtotal: totalBuy + totalRent,
       depositTotal: totalDeposit,
@@ -817,7 +870,7 @@ export class SupabaseAdapter {
       totalAmount: calculatedTotal,
       status: row.status === 'renting' ? 'rented' : row.status,
       depositStatus: row.deposit_status || 'none',
-      notes: row.note || row.notes || '',
+      notes: cleanNote,
       createdAt: row.created_at,
       updatedAt: row.updated_at || row.created_at
     };

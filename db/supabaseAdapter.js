@@ -72,10 +72,13 @@ export class SupabaseAdapter {
         if (!bookingsMap[b.product_id]) bookingsMap[b.product_id] = [];
         bookingsMap[b.product_id].push({
           id: b.id,
+          orderId: b.order_id,
           startDate: b.start_date,
           endDate: b.end_date,
           status: b.status,
-          renterName: b.renter_name
+          renterName: b.renter_name,
+          renterPhone: b.renter_phone,
+          note: b.note
         });
       });
 
@@ -142,10 +145,13 @@ export class SupabaseAdapter {
     return {
       ...this._formatProduct(product, (bookings || []).map(b => ({
         id: b.id,
+        orderId: b.order_id,
         startDate: b.start_date,
         endDate: b.end_date,
         status: b.status,
-        renterName: b.renter_name
+        renterName: b.renter_name,
+        renterPhone: b.renter_phone,
+        note: b.note
       }))),
       reviews: (reviews || []).map(r => ({
         id: r.id,
@@ -714,7 +720,13 @@ export class SupabaseAdapter {
     if (isCompleted) {
       try {
         const today = new Date().toISOString().split('T')[0];
-        const { data: bookings } = await this.client.from('rental_bookings').select('*').eq('order_id', id);
+        let { data: bookings } = await this.client.from('rental_bookings').select('*').eq('order_id', id);
+        if ((!bookings || bookings.length === 0) && data && data.order_code) {
+          const { data: noteBookings } = await this.client.from('rental_bookings').select('*').ilike('note', `%${data.order_code}%`);
+          if (noteBookings && noteBookings.length > 0) {
+            bookings = noteBookings;
+          }
+        }
         if (bookings && bookings.length > 0) {
           for (const b of bookings) {
             const updateFields = { status: 'completed' };
@@ -731,6 +743,9 @@ export class SupabaseAdapter {
     } else if (status === 'cancelled' || payload.status === 'cancelled') {
       try {
         await this.client.from('rental_bookings').update({ status: 'cancelled' }).eq('order_id', id);
+        if (data && data.order_code) {
+          await this.client.from('rental_bookings').update({ status: 'cancelled' }).ilike('note', `%${data.order_code}%`);
+        }
       } catch (errBooking) {
         console.warn('Lỗi hủy rental_bookings:', errBooking);
       }

@@ -93,10 +93,13 @@ export class PostgresAdapter {
         if (!bookingsMap[b.product_id]) bookingsMap[b.product_id] = [];
         bookingsMap[b.product_id].push({
           id: b.id,
+          orderId: b.order_id,
           startDate: b.start_date,
           endDate: b.end_date,
           status: b.status,
-          renterName: b.renter_name
+          renterName: b.renter_name,
+          renterPhone: b.renter_phone,
+          note: b.note
         });
       });
     }
@@ -122,10 +125,13 @@ export class PostgresAdapter {
     return {
       ...this._formatProduct(product, bookings.map(b => ({
         id: b.id,
+        orderId: b.order_id,
         startDate: b.start_date,
         endDate: b.end_date,
         status: b.status,
-        renterName: b.renter_name
+        renterName: b.renter_name,
+        renterPhone: b.renter_phone,
+        note: b.note
       }))),
       reviews: reviews.map(r => ({
         id: r.id,
@@ -508,19 +514,26 @@ export class PostgresAdapter {
     const isCompleted = status === 'completed' || mappedStatus === 'completed' || status === 'returned';
     if (isCompleted) {
       try {
+        const orderCode = rows.length > 0 ? (rows[0].order_code || '') : '';
         await this.pool.query(
           `UPDATE public.rental_bookings 
            SET status = 'completed', 
                end_date = CASE WHEN end_date > CURRENT_DATE THEN GREATEST(start_date, CURRENT_DATE) ELSE end_date END 
-           WHERE order_id = $1`,
-          [id]
+           WHERE order_id = $1 OR ($2 != '' AND note ILIKE '%' || $2 || '%')`,
+          [id, orderCode]
         );
       } catch (errBooking) {
         console.warn('Lỗi cập nhật rental_bookings khi trả đồ:', errBooking);
       }
     } else if (status === 'cancelled' || mappedStatus === 'cancelled') {
       try {
-        await this.pool.query(`UPDATE public.rental_bookings SET status = 'cancelled' WHERE order_id = $1`, [id]);
+        const orderCode = rows.length > 0 ? (rows[0].order_code || '') : '';
+        await this.pool.query(
+          `UPDATE public.rental_bookings 
+           SET status = 'cancelled' 
+           WHERE order_id = $1 OR ($2 != '' AND note ILIKE '%' || $2 || '%')`,
+          [id, orderCode]
+        );
       } catch (errBooking) {
         console.warn('Lỗi hủy rental_bookings:', errBooking);
       }

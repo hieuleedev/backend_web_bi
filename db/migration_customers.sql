@@ -1,5 +1,5 @@
 -- ==============================================================================
--- BẢN MIGRATION THÊM BẢNG CUSTOMERS VÀ CẬP NHẬT RENTAL_BOOKINGS
+-- BẢN MIGRATION SỬA LỖI & CẬP NHẬT BẢNG CUSTOMERS VÀ RENTAL_BOOKINGS
 -- Chạy đoạn mã này trong Supabase Dashboard -> SQL Editor
 -- ==============================================================================
 
@@ -7,31 +7,33 @@
 CREATE TABLE IF NOT EXISTS public.customers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  phone TEXT UNIQUE NOT NULL,
-  email TEXT,
-  address TEXT,
-  total_rent_count INTEGER DEFAULT 0,
-  total_spent NUMERIC(12, 2) DEFAULT 0,
-  debt NUMERIC(12, 2) DEFAULT 0,
-  notes TEXT,
-  rating NUMERIC(3, 2) DEFAULT 5.0,
-  is_vip BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  phone TEXT UNIQUE NOT NULL
 );
+
+-- 2. Đảm bảo tất cả các cột của bảng customers đều được thêm đầy đủ (kể cả khi bảng đã tạo từ trước)
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS total_rent_count INTEGER DEFAULT 0;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS total_spent NUMERIC(12, 2) DEFAULT 0;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS debt NUMERIC(12, 2) DEFAULT 0;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS rating NUMERIC(3, 2) DEFAULT 5.0;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
 -- Tạo chỉ mục tìm kiếm nhanh cho phone và name
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON public.customers(phone);
 CREATE INDEX IF NOT EXISTS idx_customers_name ON public.customers(name);
 
--- 2. Thêm cột customer_id và deposit_amount vào bảng rental_bookings nếu chưa có
+-- 3. Thêm cột customer_id và deposit_amount vào bảng rental_bookings nếu chưa có
 ALTER TABLE public.rental_bookings ADD COLUMN IF NOT EXISTS customer_id TEXT;
 ALTER TABLE public.rental_bookings ADD COLUMN IF NOT EXISTS deposit_amount NUMERIC(12, 2) DEFAULT 0;
 
 -- Tạo index cho customer_id trong rental_bookings
 CREATE INDEX IF NOT EXISTS idx_rental_customer ON public.rental_bookings(customer_id);
 
--- 3. Bật RLS và cấp quyền truy cập công khai cho bảng customers
+-- 4. Bật RLS và cấp quyền truy cập công khai cho bảng customers
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
 
 DO $$
@@ -54,13 +56,12 @@ BEGIN
 END
 $$;
 
--- 4. Đồng bộ dữ liệu khách hàng cũ từ các đơn hàng hiện có vào bảng customers (nếu có đơn)
-INSERT INTO public.customers (id, name, phone, email, address, total_rent_count, total_spent, created_at, updated_at)
+-- 5. Đồng bộ dữ liệu khách hàng cũ từ các đơn hàng hiện có vào bảng customers
+INSERT INTO public.customers (id, name, phone, address, total_rent_count, total_spent, created_at, updated_at)
 SELECT 
   'cust-' || TRIM(customer_phone) AS id,
   MAX(customer_name) AS name,
   TRIM(customer_phone) AS phone,
-  MAX(customer_email) AS email,
   MAX(shipping_address) AS address,
   COUNT(id) AS total_rent_count,
   SUM(COALESCE(total_rent_fee, 0) + COALESCE(total_buy_price, 0)) AS total_spent,
@@ -74,9 +75,12 @@ SET
   total_rent_count = EXCLUDED.total_rent_count,
   total_spent = EXCLUDED.total_spent;
 
--- 5. Cập nhật customer_id vào rental_bookings từ renter_phone nếu đã có khách
+-- 6. Cập nhật customer_id vào rental_bookings từ renter_phone cho các lịch thuê đã có
 UPDATE public.rental_bookings rb
 SET customer_id = c.id
 FROM public.customers c
 WHERE TRIM(rb.renter_phone) = c.phone
   AND (rb.customer_id IS NULL OR rb.customer_id = '');
+
+-- 7. Làm mới bộ nhớ đệm Supabase PostgREST (để API nhận diện ngay lập tức)
+NOTIFY pgrst, 'reload schema';

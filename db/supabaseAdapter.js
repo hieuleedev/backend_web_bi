@@ -939,9 +939,16 @@ export class SupabaseAdapter {
         paymentStatus = 'paid';
       } else if ((row.note || '').includes('[CHUA_THANH_TOAN]')) {
         paymentStatus = 'unpaid';
+      } else if (row.status === 'completed' || row.status === 'returned' || row.deposit_status === 'refunded') {
+        paymentStatus = 'paid';
       } else {
         paymentStatus = 'unpaid';
       }
+    }
+
+    // Đơn hàng đã hoàn thành hoặc đã hoàn cọc trả đồ thì 100% đã thanh toán xong
+    if (row.status === 'completed' || row.status === 'returned' || row.deposit_status === 'refunded') {
+      paymentStatus = 'paid';
     }
 
     const cleanNote = (row.note || row.notes || '').replace(/\[(DA_THANH_TOAN|CHUA_THANH_TOAN)\]/g, '').trim();
@@ -1280,29 +1287,30 @@ export class SupabaseAdapter {
   }
 
   async getCustomerByPhone(phone) {
-    const cleanPhone = (phone || '').trim();
-    const customers = await this.getCustomers({ search: cleanPhone });
-    const customer = customers.find(c => c.phone === cleanPhone) || {
-      id: `cust-${cleanPhone}`,
-      name: 'Khách hàng mới',
-      phone: cleanPhone,
+    const rawPhone = (phone || '').trim();
+    const cleanDigits = rawPhone.replace(/\D/g, '');
+    const customers = await this.getCustomers({ search: rawPhone });
+    const customer = customers.find(c => (c.phone || '').replace(/\D/g, '') === cleanDigits) || {
+      id: `cust-${rawPhone}`,
+      name: 'Khách hàng',
+      phone: rawPhone,
       total_rent_count: 0,
       total_spent: 0,
       debt: 0
     };
 
-    // Lấy toàn bộ lịch sử đơn hàng của khách hàng này
+    // Lấy toàn bộ lịch sử đơn hàng của khách hàng này (tìm theo cả SĐT thô và chứa số)
     const { data: customerOrders, error } = await this.client
       .from('orders')
       .select('*')
-      .eq('customer_phone', cleanPhone)
+      .or(`customer_phone.eq.${rawPhone},customer_phone.ilike.%${cleanDigits}%`)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
     return {
       customer,
-      orders: customerOrders || []
+      orders: (customerOrders || []).map(row => this._formatOrder(row))
     };
   }
 }

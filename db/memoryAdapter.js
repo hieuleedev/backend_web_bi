@@ -174,6 +174,8 @@ export class MemoryAdapter {
       id: data.id || `book-${Date.now()}`,
       productId: data.productId,
       orderId: data.orderId || null,
+      customerId: data.customerId || null,
+      depositAmount: Number(data.depositAmount || data.deposit || 0),
       startDate: data.startDate,
       endDate: data.endDate,
       renterName: data.renterName || 'Khách hàng',
@@ -198,6 +200,8 @@ export class MemoryAdapter {
     if (updates.note !== undefined) booking.note = updates.note;
     if (updates.renterName) booking.renterName = updates.renterName;
     if (updates.renterPhone) booking.renterPhone = updates.renterPhone;
+    if (updates.customerId !== undefined) booking.customerId = updates.customerId;
+    if (updates.depositAmount !== undefined) booking.depositAmount = Number(updates.depositAmount || 0);
     if (updates.startDate) booking.startDate = updates.startDate;
     if (updates.endDate) booking.endDate = updates.endDate;
     return booking;
@@ -331,17 +335,26 @@ export class MemoryAdapter {
     };
     this.orders.unshift(order);
 
-    for (const item of (orderData.items || [])) {
-      if (item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate) {
-        await this.createRentalBooking({
-          productId: item.productId,
-          orderId: id,
-          startDate: item.rentalStartDate,
-          endDate: item.rentalEndDate,
-          renterName: orderData.customerName,
-          renterPhone: orderData.customerPhone
-        });
+    const rentalItems = (orderData.items || []).filter(item => item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate);
+    const cleanPhone = (orderData.customerPhone || '').trim();
+    const customerId = cleanPhone ? `cust-${cleanPhone}` : null;
+
+    for (const item of rentalItems) {
+      let depositAmount = Number(item.depositAmount || item.deposit || 0);
+      if (depositAmount === 0 && rentalItems.length === 1) {
+        depositAmount = Number(orderData.totalDeposit || orderData.depositTotal || 0);
       }
+
+      await this.createRentalBooking({
+        productId: item.productId,
+        orderId: id,
+        customerId,
+        depositAmount,
+        startDate: item.rentalStartDate,
+        endDate: item.rentalEndDate,
+        renterName: orderData.customerName,
+        renterPhone: orderData.customerPhone
+      });
     }
 
     return { order, orderCode };

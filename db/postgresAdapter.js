@@ -252,11 +252,23 @@ export class PostgresAdapter {
 
     const id = data.id || `book-${Date.now()}`;
     const sql = `
-      INSERT INTO public.rental_bookings (id, product_id, order_id, start_date, end_date, renter_name, renter_phone, status, note, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      INSERT INTO public.rental_bookings (id, product_id, order_id, customer_id, deposit_amount, start_date, end_date, renter_name, renter_phone, status, note, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
       RETURNING *
     `;
-    const values = [id, data.productId, data.orderId || null, data.startDate, data.endDate, data.renterName || 'Khách hàng', data.renterPhone || '', data.status || 'confirmed', data.note || ''];
+    const values = [
+      id,
+      data.productId,
+      data.orderId || null,
+      data.customerId || null,
+      Number(data.depositAmount || data.deposit || 0),
+      data.startDate,
+      data.endDate,
+      data.renterName || 'Khách hàng',
+      data.renterPhone || '',
+      data.status || 'confirmed',
+      data.note || ''
+    ];
     const { rows } = await this.pool.query(sql, values);
     return rows[0];
   }
@@ -440,20 +452,29 @@ export class PostgresAdapter {
     const created = rows[0];
 
     // Thêm các lịch thuê vào bảng rental_bookings
-    for (const item of (orderData.items || [])) {
-      if (item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate) {
-        await this.createRentalBooking({
-          id: `book-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          productId: item.productId,
-          orderId: id,
-          startDate: item.rentalStartDate,
-          endDate: item.rentalEndDate,
-          renterName: orderData.customerName,
-          renterPhone: orderData.customerPhone,
-          status: 'confirmed',
-          note: `Đơn hàng ${orderCode}`
-        });
+    const rentalItems = (orderData.items || []).filter(item => item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate);
+    const cleanPhone = (orderData.customerPhone || '').trim();
+    const customerId = cleanPhone ? `cust-${cleanPhone}` : null;
+
+    for (const item of rentalItems) {
+      let depositAmount = Number(item.depositAmount || item.deposit || 0);
+      if (depositAmount === 0 && rentalItems.length === 1) {
+        depositAmount = Number(orderData.totalDeposit || orderData.depositTotal || 0);
       }
+
+      await this.createRentalBooking({
+        id: `book-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        productId: item.productId,
+        orderId: id,
+        customerId,
+        depositAmount,
+        startDate: item.rentalStartDate,
+        endDate: item.rentalEndDate,
+        renterName: orderData.customerName,
+        renterPhone: orderData.customerPhone,
+        status: 'confirmed',
+        note: `Đơn hàng ${orderCode}`
+      });
     }
 
     return { order: created, orderCode };

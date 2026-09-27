@@ -257,7 +257,21 @@ export class SupabaseAdapter {
     if (productId) query = query.eq('product_id', productId);
     const { data, error } = await query;
     if (error) throw error;
-    return data || [];
+    return (data || []).map(b => ({
+      ...b,
+      id: b.id,
+      productId: b.product_id,
+      orderId: b.order_id,
+      customerId: b.customer_id,
+      depositAmount: Number(b.deposit_amount || 0),
+      startDate: b.start_date,
+      endDate: b.end_date,
+      renterName: b.renter_name,
+      renterPhone: b.renter_phone,
+      status: b.status,
+      note: b.note,
+      createdAt: b.created_at
+    }));
   }
 
   async checkRentalAvailability(productId, startDate, endDate) {
@@ -267,8 +281,8 @@ export class SupabaseAdapter {
 
     const conflicts = (bookings || []).filter(b => {
       if (b.status === 'cancelled' || b.status === 'completed' || b.status === 'returned') return false;
-      const bStart = String(b.start_date).split('T')[0];
-      const bEnd = String(b.end_date).split('T')[0];
+      const bStart = String(b.start_date || b.startDate).split('T')[0];
+      const bEnd = String(b.end_date || b.endDate).split('T')[0];
       return s <= bEnd && e >= bStart;
     });
 
@@ -287,7 +301,7 @@ export class SupabaseAdapter {
             if (s <= ordEnd && e >= ordStart) {
               const alreadyExists = conflicts.some(c => 
                 (c.order_id && c.order_id === ord.id) || 
-                (String(c.start_date).split('T')[0] === ordStart && String(c.end_date).split('T')[0] === ordEnd)
+                (String(c.start_date || c.startDate).split('T')[0] === ordStart && String(c.end_date || c.endDate).split('T')[0] === ordEnd)
               );
               if (!alreadyExists) {
                 conflicts.push({
@@ -321,11 +335,28 @@ export class SupabaseAdapter {
       throw new Error('Khoảng thời gian này đã có người thuê trước đó!');
     }
 
+    // Tự động tìm hoặc lưu thông tin khách hàng vào bảng customers
+    let customerId = data.customerId || null;
+    if (!customerId && data.renterPhone) {
+      try {
+        const cust = await this.findOrCreateCustomer({
+          name: data.renterName || 'Khách hàng',
+          phone: data.renterPhone,
+          note: data.note || ''
+        });
+        customerId = cust?.id || null;
+      } catch (e) {
+        console.warn('findOrCreateCustomer fallback trong createRentalBooking:', e.message);
+      }
+    }
+
     const id = data.id || `book-${Date.now()}`;
     const payload = {
       id,
       product_id: data.productId,
       order_id: data.orderId || null,
+      customer_id: customerId,
+      deposit_amount: Number(data.depositAmount || data.deposit || 0),
       start_date: data.startDate,
       end_date: data.endDate,
       renter_name: data.renterName || 'Khách hàng',
@@ -335,16 +366,44 @@ export class SupabaseAdapter {
       created_at: new Date().toISOString()
     };
 
-    const { data: created, error } = await this.client.from('rental_bookings').insert(payload).select().single();
-    if (error) throw error;
-    return created;
+    try {
+      const { data: created, error } = await this.client.from('rental_bookings').insert(payload).select().single();
+      if (error) throw error;
+      return created;
+    } catch (err) {
+      // Fallback nếu database Supabase chưa chạy SQL thêm cột customer_id hoặc deposit_amount
+      if (err.code === 'PGRST204' || (err.message && (err.message.includes('customer_id') || err.message.includes('deposit_amount')))) {
+        delete payload.customer_id;
+        delete payload.deposit_amount;
+        const { data: retryCreated, error: retryErr } = await this.client.from('rental_bookings').insert(payload).select().single();
+        if (retryErr) throw retryErr;
+        return retryCreated;
+      }
+      throw err;
+    }
   }
 
   async createManyRentalBookings(bookingsList = []) {
     if (!bookingsList.length) return [];
-    const { data, error } = await this.client.from('rental_bookings').insert(bookingsList).select();
-    if (error) throw error;
-    return data;
+    try {
+      const { data, error } = await this.client.from('rental_bookings').insert(bookingsList).select();
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      // Fallback nếu database Supabase chưa chạy migration thêm cột customer_id, deposit_amount
+      if (err.code === 'PGRST204' || (err.message && (err.message.includes('customer_id') || err.message.includes('deposit_amount')))) {
+        const fallbackList = bookingsList.map(b => {
+          const clone = { ...b };
+          delete clone.customer_id;
+          delete clone.deposit_amount;
+          return clone;
+        });
+        const { data: retryData, error: retryErr } = await this.client.from('rental_bookings').insert(fallbackList).select();
+        if (retryErr) throw retryErr;
+        return retryData;
+      }
+      throw err;
+    }
   }
 
   async updateRentalBooking(id, updates = {}) {
@@ -355,6 +414,8 @@ export class SupabaseAdapter {
     if (updates.renterPhone) payload.renter_phone = updates.renterPhone;
     if (updates.startDate) payload.start_date = updates.startDate;
     if (updates.endDate) payload.end_date = updates.endDate;
+    if (updates.customerId !== undefined) payload.customer_id = updates.customerId;
+    if (updates.depositAmount !== undefined) payload.deposit_amount = Number(updates.depositAmount || 0);
 
     const { data, error } = await this.client.from('rental_bookings').update(payload).eq('id', id).select().single();
     if (error) throw error;
@@ -428,6 +489,8 @@ export class SupabaseAdapter {
       bookings: allBookings.map(b => ({
         id: b.id,
         orderId: b.order_id,
+        customerId: b.customer_id,
+        depositAmount: Number(b.deposit_amount || 0),
         startDate: b.start_date,
         endDate: b.end_date,
         renterName: b.renter_name,
@@ -454,6 +517,7 @@ export class SupabaseAdapter {
       const phone = b.renter_phone || 'Không có SĐT';
       if (!rentersMap[phone]) {
         rentersMap[phone] = {
+          customerId: b.customer_id,
           renterName: b.renter_name,
           renterPhone: phone,
           totalBookings: 0,
@@ -464,12 +528,15 @@ export class SupabaseAdapter {
       }
 
       rentersMap[phone].totalBookings += 1;
+      if (b.customer_id && !rentersMap[phone].customerId) rentersMap[phone].customerId = b.customer_id;
       if (b.status === 'active' || b.status === 'confirmed') rentersMap[phone].activeRentals += 1;
       if (b.status === 'completed') rentersMap[phone].completedRentals += 1;
 
       rentersMap[phone].history.push({
         bookingId: b.id,
         orderId: b.order_id,
+        customerId: b.customer_id,
+        depositAmount: Number(b.deposit_amount || 0),
         productId: b.product_id,
         productTitle: b.products?.title || 'Trang phục',
         productImage: b.products?.featured_image || '',
@@ -560,20 +627,49 @@ export class SupabaseAdapter {
     const { data: created, error } = await this.client.from('orders').insert(payload).select().single();
     if (error) throw error;
 
+    // Tự động tìm hoặc lưu thông tin khách hàng vào bảng customers
+    let customerId = null;
+    const rentalItems = (orderData.items || []).filter(item => item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate);
+    const totalRentSpent = orderData.totalRentFee || orderData.subtotal || 0;
+
+    try {
+      const cust = await this.findOrCreateCustomer({
+        name: orderData.customerName,
+        phone: orderData.customerPhone,
+        email: orderData.customerEmail,
+        address: orderData.shippingAddress,
+        note: `Đơn hàng ${orderCode}`,
+        rentCount: rentalItems.length || 1,
+        spentAmount: totalRentSpent
+      });
+      if (cust && cust.id) {
+        customerId = cust.id;
+      }
+    } catch (e) {
+      console.warn('Lỗi lưu khách hàng trong createOrder:', e.message);
+    }
+
     // Tự động tạo lịch thuê nếu có item thuê
-    const rentalBookings = (orderData.items || [])
-      .filter(item => item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate)
-      .map(item => ({
+    const rentalBookings = rentalItems.map(item => {
+      let depositAmount = Number(item.depositAmount || item.deposit || 0);
+      if (depositAmount === 0 && rentalItems.length === 1) {
+        depositAmount = Number(orderData.totalDeposit || orderData.depositTotal || 0);
+      }
+
+      return {
         id: `book-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         product_id: item.productId,
         order_id: id,
+        customer_id: customerId,
+        deposit_amount: depositAmount,
         start_date: item.rentalStartDate,
         end_date: item.rentalEndDate,
         renter_name: orderData.customerName,
         renter_phone: orderData.customerPhone,
         status: 'confirmed',
         note: `Đơn hàng ${orderCode}`
-      }));
+      };
+    });
 
     if (rentalBookings.length > 0) {
       await this.createManyRentalBookings(rentalBookings);
@@ -987,6 +1083,95 @@ export class SupabaseAdapter {
   // ==========================================
   // CUSTOMERS (BẢNG KHÁCH HÀNG & THỐNG KÊ THEO SỐ ĐIỆN THOẠI)
   // ==========================================
+
+  /**
+   * Tự động tìm khách hàng cũ theo Số Điện Thoại hoặc tạo khách hàng mới
+   * Đồng thời cập nhật số lần thuê (total_rent_count) và tổng chi tiêu (total_spent)
+   */
+  async findOrCreateCustomer({ name, phone, email, address, note, rentCount = 1, spentAmount = 0 }) {
+    const cleanPhone = (phone || '').trim();
+    if (!cleanPhone) return null;
+
+    try {
+      // 1. Kiểm tra xem khách đã có trong bảng customers chưa
+      const { data: existing, error: findErr } = await this.client
+        .from('customers')
+        .select('*')
+        .eq('phone', cleanPhone)
+        .maybeSingle();
+
+      if (findErr && findErr.code !== 'PGRST116') {
+        // Nếu bảng customers chưa tồn tại (PGRST205 / does not exist)
+        if (findErr.code === 'PGRST205' || findErr.message?.includes('does not exist')) {
+          return { id: `cust-${cleanPhone}`, name: name || 'Khách hàng', phone: cleanPhone };
+        }
+      }
+
+      if (existing) {
+        // 2. Cập nhật thông tin khách hàng hiện tại: tăng số lần thuê, cộng tiền chi tiêu
+        const newRentCount = (Number(existing.total_rent_count) || 0) + (Number(rentCount) || 0);
+        const newSpent = (Number(existing.total_spent) || 0) + (Number(spentAmount) || 0);
+        const updates = {
+          total_rent_count: newRentCount,
+          total_spent: newSpent,
+          is_vip: newRentCount >= 2 || newSpent >= 500000,
+          updated_at: new Date().toISOString()
+        };
+        if (name && name !== 'Khách hàng') updates.name = name;
+        if (address) updates.address = address;
+        if (email) updates.email = email;
+        if (note) updates.notes = existing.notes ? `${existing.notes} | ${note}` : note;
+
+        const { data: updated, error: updateErr } = await this.client
+          .from('customers')
+          .update(updates)
+          .eq('id', existing.id)
+          .select()
+          .maybeSingle();
+
+        if (updateErr) {
+          console.warn('Lỗi cập nhật customer:', updateErr.message);
+          return existing;
+        }
+        return updated || existing;
+      }
+
+      // 3. Tạo khách hàng mới
+      const newId = `cust-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const newCustomer = {
+        id: newId,
+        name: name || 'Khách hàng',
+        phone: cleanPhone,
+        email: email || '',
+        address: address || '',
+        total_rent_count: Number(rentCount) || 1,
+        total_spent: Number(spentAmount) || 0,
+        debt: 0,
+        notes: note || '',
+        rating: 5.0,
+        is_vip: (Number(rentCount) || 1) >= 2 || (Number(spentAmount) || 0) >= 500000,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const { data: created, error: insertErr } = await this.client
+        .from('customers')
+        .insert(newCustomer)
+        .select()
+        .single();
+
+      if (insertErr) {
+        console.warn('Lỗi insert customer mới:', insertErr.message);
+        return { id: newId, name: name || 'Khách hàng', phone: cleanPhone };
+      }
+
+      return created;
+    } catch (err) {
+      console.warn('Lỗi trong findOrCreateCustomer:', err.message);
+      return { id: `cust-${cleanPhone}`, name: name || 'Khách hàng', phone: cleanPhone };
+    }
+  }
+
   async getCustomers(filters = {}) {
     const { search, sortBy = 'rentCount' } = filters;
 

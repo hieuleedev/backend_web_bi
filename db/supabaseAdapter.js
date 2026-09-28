@@ -34,13 +34,16 @@ export class SupabaseAdapter {
   // PRODUCTS
   // ==========================================
   async getProducts(filters = {}) {
-    const { category, type, status, search, minPrice, maxPrice, limit = 50 } = filters;
+    const { category, type, status, search, minPrice, maxPrice, limit = 1000 } = filters;
 
     let query = this.client
       .from('products')
       .select('*')
-      .order('created_at', { ascending: false })
-      .limit(Number(limit));
+      .order('created_at', { ascending: false });
+
+    if (limit && limit !== 'all' && Number(limit) > 0) {
+      query = query.limit(Number(limit));
+    }
 
     if (category && category !== 'all') query = query.eq('category', category);
     if (type && type !== 'all') query = query.in('type', [type, 'both']);

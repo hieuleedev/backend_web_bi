@@ -43,7 +43,7 @@ export class PostgresAdapter {
   // PRODUCTS
   // ==========================================
   async getProducts(filters = {}) {
-    const { category, type, status, search, minPrice, maxPrice, limit = 50 } = filters;
+    const { category, type, status, search, minPrice, maxPrice, limit = 1000 } = filters;
     const conditions = [];
     const values = [];
     let idx = 1;

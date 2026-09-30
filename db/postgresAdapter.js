@@ -546,6 +546,106 @@ export class PostgresAdapter {
     return rows.length > 0 ? rows[0] : null;
   }
 
+  async updateOrder(id, orderData) {
+    const updates = [];
+    const values = [];
+    let idx = 1;
+
+    if (orderData.status !== undefined) {
+      const statusMap = { rented: 'renting', preparing: 'confirmed' };
+      updates.push(`status = $${idx++}`);
+      values.push(statusMap[orderData.status] || orderData.status);
+    }
+    if (orderData.depositStatus !== undefined) {
+      updates.push(`deposit_status = $${idx++}`);
+      values.push(orderData.depositStatus);
+    }
+    if (orderData.paymentStatus !== undefined) {
+      updates.push(`payment_status = $${idx++}`);
+      values.push(orderData.paymentStatus);
+    }
+    if (orderData.customerName !== undefined) {
+      updates.push(`customer_name = $${idx++}`);
+      values.push(orderData.customerName);
+    }
+    if (orderData.customerPhone !== undefined) {
+      updates.push(`customer_phone = $${idx++}`);
+      values.push(orderData.customerPhone);
+    }
+    if (orderData.shippingAddress !== undefined) {
+      updates.push(`shipping_address = $${idx++}`);
+      values.push(orderData.shippingAddress);
+    }
+    if (orderData.notes !== undefined || orderData.note !== undefined) {
+      updates.push(`note = $${idx++}`);
+      values.push(orderData.notes || orderData.note || '');
+    }
+    if (orderData.items !== undefined) {
+      updates.push(`items = $${idx++}`);
+      values.push(JSON.stringify(orderData.items));
+    }
+    if (orderData.totalAmount !== undefined) {
+      updates.push(`total_amount = $${idx++}`);
+      values.push(orderData.totalAmount);
+    }
+    if (orderData.depositTotal !== undefined) {
+      updates.push(`deposit_total = $${idx++}`);
+      values.push(orderData.depositTotal);
+    }
+
+    if (updates.length === 0) return null;
+
+    values.push(id);
+    const sql = `UPDATE public.orders SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx} RETURNING *`;
+    const { rows } = await this.pool.query(sql, values);
+
+    // Đồng bộ rental_bookings
+    if (rows.length > 0 && Array.isArray(orderData.items)) {
+      try {
+        const orderCode = rows[0].order_code || '';
+        for (const it of orderData.items) {
+          if (it.mode === 'rent' && it.productId) {
+            const bUpdates = [];
+            const bVals = [];
+            let bIdx = 1;
+            if (it.size) {
+              bUpdates.push(`size = $${bIdx++}`);
+              bVals.push(it.size);
+            }
+            if (it.rentalStartDate) {
+              bUpdates.push(`start_date = $${bIdx++}`);
+              bVals.push(it.rentalStartDate);
+            }
+            if (it.rentalEndDate) {
+              bUpdates.push(`end_date = $${bIdx++}`);
+              bVals.push(it.rentalEndDate);
+            }
+            if (orderData.customerName) {
+              bUpdates.push(`renter_name = $${bIdx++}`);
+              bVals.push(orderData.customerName);
+            }
+            if (orderData.customerPhone) {
+              bUpdates.push(`renter_phone = $${bIdx++}`);
+              bVals.push(orderData.customerPhone);
+            }
+            if (bUpdates.length > 0) {
+              bVals.push(id, orderCode, it.productId);
+              await this.pool.query(
+                `UPDATE public.rental_bookings SET ${bUpdates.join(', ')} 
+                 WHERE (order_id = $${bIdx++} OR ($${bIdx++} != '' AND note ILIKE '%' || $${bIdx - 1} || '%')) AND product_id = $${bIdx++}`,
+                bVals
+              );
+            }
+          }
+        }
+      } catch (errB) {
+        console.warn('Lỗi cập nhật rental_bookings trong postgresAdapter.updateOrder:', errB);
+      }
+    }
+
+    return rows.length > 0 ? rows[0] : null;
+  }
+
   // ==========================================
   // REVIEWS
   // ==========================================

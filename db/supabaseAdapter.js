@@ -802,6 +802,40 @@ export class SupabaseAdapter {
         throw err;
       }
     }
+
+    // Đồng bộ các thay đổi vào rental_bookings (size, ngày thuê, tên khách, số điện thoại)
+    try {
+      let { data: bookings } = await this.client.from('rental_bookings').select('*').eq('order_id', id);
+      if ((!bookings || bookings.length === 0) && data && data.order_code) {
+        const { data: noteBookings } = await this.client.from('rental_bookings').select('*').ilike('note', `%${data.order_code}%`);
+        if (noteBookings && noteBookings.length > 0) {
+          bookings = noteBookings;
+        }
+      }
+
+      if (bookings && bookings.length > 0) {
+        for (const b of bookings) {
+          const bookingUpdate = {};
+          if (orderData.customerName) bookingUpdate.renter_name = orderData.customerName;
+          if (orderData.customerPhone) bookingUpdate.renter_phone = orderData.customerPhone;
+
+          if (Array.isArray(orderData.items)) {
+            const matchedItem = orderData.items.find(it => it.productId === b.product_id && it.mode === 'rent');
+            if (matchedItem) {
+              if (matchedItem.size) bookingUpdate.size = matchedItem.size;
+              if (matchedItem.rentalStartDate) bookingUpdate.start_date = matchedItem.rentalStartDate;
+              if (matchedItem.rentalEndDate) bookingUpdate.end_date = matchedItem.rentalEndDate;
+            }
+          }
+          if (Object.keys(bookingUpdate).length > 0) {
+            await this.client.from('rental_bookings').update(bookingUpdate).eq('id', b.id);
+          }
+        }
+      }
+    } catch (errBooking) {
+      console.warn('Lỗi cập nhật rental_bookings trong updateOrder:', errBooking.message || errBooking);
+    }
+
     return this._formatOrder(data);
   }
 

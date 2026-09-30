@@ -391,6 +391,22 @@ export class MemoryAdapter {
     const index = this.orders.findIndex(o => o.id === id);
     if (index === -1) return null;
     this.orders[index] = { ...this.orders[index], ...data };
+
+    if (Array.isArray(data.items)) {
+      this.rentalBookings.forEach(b => {
+        if (b.orderId === id) {
+          const matched = data.items.find(it => it.productId === b.productId && it.mode === 'rent');
+          if (matched) {
+            if (matched.size) b.size = matched.size;
+            if (matched.rentalStartDate) b.startDate = matched.rentalStartDate;
+            if (matched.rentalEndDate) b.endDate = matched.rentalEndDate;
+          }
+          if (data.customerName) b.renterName = data.customerName;
+          if (data.customerPhone) b.renterPhone = data.customerPhone;
+        }
+      });
+    }
+
     return this.orders[index];
   }
 

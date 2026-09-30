@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS public.rental_bookings (
   renter_phone TEXT,
   customer_id TEXT,
   deposit_amount NUMERIC(12, 2) DEFAULT 0,
+  size TEXT,
   status TEXT DEFAULT 'confirmed' CHECK (status IN ('pending', 'confirmed', 'completed', 'blocked', 'cancelled')),
   note TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),

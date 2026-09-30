@@ -76,6 +76,7 @@ export class SupabaseAdapter {
         bookingsMap[b.product_id].push({
           id: b.id,
           orderId: b.order_id,
+          size: b.size,
           startDate: b.start_date,
           endDate: b.end_date,
           status: b.status,
@@ -98,13 +99,18 @@ export class SupabaseAdapter {
               if (!bookingsMap[item.productId]) bookingsMap[item.productId] = [];
               const s = (item.rentalStartDate || '').split('T')[0];
               const e = (item.rentalEndDate || '').split('T')[0];
+              const itemSize = (item.size || '').trim().toUpperCase();
               const exists = bookingsMap[item.productId].some(b => 
-                (b.startDate || '').split('T')[0] === s && (b.endDate || '').split('T')[0] === e && b.status !== 'cancelled'
+                (b.startDate || '').split('T')[0] === s && 
+                (b.endDate || '').split('T')[0] === e && 
+                b.status !== 'cancelled' &&
+                (!b.size || b.size.trim().toUpperCase() === itemSize)
               );
               if (!exists) {
                 bookingsMap[item.productId].push({
-                  id: `order-book-${ord.id}-${item.productId}`,
+                  id: `order-book-${ord.id}-${item.productId}-${item.size || 'M'}`,
                   orderId: ord.id,
+                  size: item.size || 'M',
                   startDate: s,
                   endDate: e,
                   status: 'confirmed',
@@ -149,6 +155,7 @@ export class SupabaseAdapter {
       ...this._formatProduct(product, (bookings || []).map(b => ({
         id: b.id,
         orderId: b.order_id,
+        size: b.size,
         startDate: b.start_date,
         endDate: b.end_date,
         status: b.status,
@@ -366,6 +373,7 @@ export class SupabaseAdapter {
       order_id: data.orderId || null,
       customer_id: customerId,
       deposit_amount: Number(data.depositAmount || data.deposit || 0),
+      size: data.size || null,
       start_date: data.startDate,
       end_date: data.endDate,
       renter_name: data.renterName || 'Khách hàng',
@@ -380,10 +388,11 @@ export class SupabaseAdapter {
       if (error) throw error;
       return created;
     } catch (err) {
-      // Fallback nếu database Supabase chưa chạy SQL thêm cột customer_id hoặc deposit_amount
-      if (err.code === 'PGRST204' || (err.message && (err.message.includes('customer_id') || err.message.includes('deposit_amount')))) {
+      // Fallback nếu database Supabase chưa chạy SQL thêm cột size, customer_id hoặc deposit_amount
+      if (err.code === 'PGRST204' || (err.message && (err.message.includes('customer_id') || err.message.includes('deposit_amount') || err.message.includes('size')))) {
         delete payload.customer_id;
         delete payload.deposit_amount;
+        delete payload.size;
         const { data: retryCreated, error: retryErr } = await this.client.from('rental_bookings').insert(payload).select().single();
         if (retryErr) throw retryErr;
         return retryCreated;
@@ -399,12 +408,13 @@ export class SupabaseAdapter {
       if (error) throw error;
       return data;
     } catch (err) {
-      // Fallback nếu database Supabase chưa chạy migration thêm cột customer_id, deposit_amount
-      if (err.code === 'PGRST204' || (err.message && (err.message.includes('customer_id') || err.message.includes('deposit_amount')))) {
+      // Fallback nếu database Supabase chưa chạy migration thêm cột size, customer_id, deposit_amount
+      if (err.code === 'PGRST204' || (err.message && (err.message.includes('customer_id') || err.message.includes('deposit_amount') || err.message.includes('size')))) {
         const fallbackList = bookingsList.map(b => {
           const clone = { ...b };
           delete clone.customer_id;
           delete clone.deposit_amount;
+          delete clone.size;
           return clone;
         });
         const { data: retryData, error: retryErr } = await this.client.from('rental_bookings').insert(fallbackList).select();
@@ -671,6 +681,7 @@ export class SupabaseAdapter {
         order_id: id,
         customer_id: customerId,
         deposit_amount: depositAmount,
+        size: item.size || 'M',
         start_date: item.rentalStartDate,
         end_date: item.rentalEndDate,
         renter_name: orderData.customerName,

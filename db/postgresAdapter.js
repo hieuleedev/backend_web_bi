@@ -94,6 +94,7 @@ export class PostgresAdapter {
         bookingsMap[b.product_id].push({
           id: b.id,
           orderId: b.order_id,
+          size: b.size,
           startDate: b.start_date,
           endDate: b.end_date,
           status: b.status,
@@ -126,6 +127,7 @@ export class PostgresAdapter {
       ...this._formatProduct(product, bookings.map(b => ({
         id: b.id,
         orderId: b.order_id,
+        size: b.size,
         startDate: b.start_date,
         endDate: b.end_date,
         status: b.status,
@@ -258,8 +260,8 @@ export class PostgresAdapter {
 
     const id = data.id || `book-${Date.now()}`;
     const sql = `
-      INSERT INTO public.rental_bookings (id, product_id, order_id, customer_id, deposit_amount, start_date, end_date, renter_name, renter_phone, status, note, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+      INSERT INTO public.rental_bookings (id, product_id, order_id, customer_id, deposit_amount, size, start_date, end_date, renter_name, renter_phone, status, note, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
       RETURNING *
     `;
     const values = [
@@ -268,6 +270,7 @@ export class PostgresAdapter {
       data.orderId || null,
       data.customerId || null,
       Number(data.depositAmount || data.deposit || 0),
+      data.size || null,
       data.startDate,
       data.endDate,
       data.renterName || 'Khách hàng',
@@ -474,6 +477,7 @@ export class PostgresAdapter {
         orderId: id,
         customerId,
         depositAmount,
+        size: item.size || 'M',
         startDate: item.rentalStartDate,
         endDate: item.rentalEndDate,
         renterName: orderData.customerName,

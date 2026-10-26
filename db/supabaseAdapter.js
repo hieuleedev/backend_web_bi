@@ -290,13 +290,21 @@ export class SupabaseAdapter {
     }));
   }
 
-  async checkRentalAvailability(productId, startDate, endDate) {
+  async checkRentalAvailability(productId, startDate, endDate, requestedSize = null) {
     const bookings = await this.getRentalBookings(productId);
     const s = String(startDate).split('T')[0];
     const e = String(endDate).split('T')[0];
+    const targetSize = requestedSize ? String(requestedSize).trim().toUpperCase() : null;
 
     const conflicts = (bookings || []).filter(b => {
       if (b.status === 'cancelled' || b.status === 'completed' || b.status === 'returned') return false;
+      
+      // Phân tách theo size: nếu có size cụ thể, chỉ xung đột khi cùng size (hoặc lịch cũ không ghi size)
+      if (targetSize && b.size && String(b.size).trim() !== '') {
+        const bSize = String(b.size).trim().toUpperCase();
+        if (bSize !== targetSize) return false;
+      }
+
       const bStart = String(b.start_date || b.startDate).split('T')[0];
       const bEnd = String(b.end_date || b.endDate).split('T')[0];
       return s <= bEnd && e >= bStart;
@@ -312,6 +320,12 @@ export class SupabaseAdapter {
       (activeOrders || []).forEach(ord => {
         (ord.items || []).forEach(item => {
           if (item.productId === productId && item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate) {
+            // Kiểm tra size trong đơn hàng
+            if (targetSize && item.size && String(item.size).trim() !== '') {
+              const itemSize = String(item.size).trim().toUpperCase();
+              if (itemSize !== targetSize) return;
+            }
+
             const ordStart = String(item.rentalStartDate).split('T')[0];
             const ordEnd = String(item.rentalEndDate).split('T')[0];
             if (s <= ordEnd && e >= ordStart) {
@@ -608,7 +622,31 @@ export class SupabaseAdapter {
 
   async createOrder(orderData) {
     const id = orderData.id || `ord-${Date.now()}`;
-    const orderCode = orderData.orderCode || `BB-${Math.floor(10000 + Math.random() * 90000)}`;
+    
+    // Tạo và kiểm tra orderCode đảm bảo tuyệt đối không trùng lặp trong DB
+    let orderCode = orderData.orderCode;
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+
+    if (orderCode) {
+      // Nếu client gửi lên, kiểm tra xem mã này đã có trong DB chưa
+      const { data: exist } = await this.client.from('orders').select('id').eq('order_code', orderCode).maybeSingle();
+      if (exist) {
+        // Nếu trùng mã do đụng ngẫu nhiên, sinh mã mới kèm ngày tháng
+        orderCode = `BB-${yy}${mm}${dd}-${Math.floor(1000 + Math.random() * 9000)}`;
+      }
+    } else {
+      orderCode = `BB-${yy}${mm}${dd}-${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+
+    // Đảm bảo mã mới sinh không bị trùng (vòng lặp an toàn tối đa 10 lần)
+    for (let retry = 0; retry < 10; retry++) {
+      const { data: existCheck } = await this.client.from('orders').select('id').eq('order_code', orderCode).maybeSingle();
+      if (!existCheck) break;
+      orderCode = `BB-${yy}${mm}${dd}-${Math.floor(1000 + Math.random() * 9000)}`;
+    }
 
     const statusMap = { rented: 'renting', preparing: 'confirmed' };
     const dbStatus = statusMap[orderData.status] || orderData.status || 'pending';
@@ -632,13 +670,14 @@ export class SupabaseAdapter {
       created_at: new Date().toISOString()
     };
 
-    // Kiểm tra trùng lịch trước khi tạo đơn
+    // Kiểm tra trùng lịch trước khi tạo đơn (có xét đúng size S/M/L)
     for (const item of (orderData.items || [])) {
       if (item.mode === 'rent' && item.rentalStartDate && item.rentalEndDate) {
-        const check = await this.checkRentalAvailability(item.productId, item.rentalStartDate, item.rentalEndDate);
+        const check = await this.checkRentalAvailability(item.productId, item.rentalStartDate, item.rentalEndDate, item.size);
         if (!check.isAvailable) {
           const conflict = check.conflicts[0];
-          throw new Error(`Mẫu váy "${item.productTitle || 'này'}" đã có khách thuê từ ${conflict?.startDate} đến ${conflict?.endDate}! Vui lòng chọn ngày khác.`);
+          const sizeTxt = item.size ? ` (Size ${item.size})` : '';
+          throw new Error(`Mẫu váy "${item.productTitle || 'này'}"${sizeTxt} đã có khách thuê từ ${conflict?.startDate} đến ${conflict?.endDate}! Vui lòng chọn ngày khác.`);
         }
       }
     }
